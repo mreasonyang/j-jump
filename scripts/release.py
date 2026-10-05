@@ -190,7 +190,7 @@ def formula(bundle, repository: str):
     if set(assets) != set(TARGETS):
         raise ValueError("Homebrew Formula requires all four targets")
     lines = ["class JJump < Formula", '  desc "Independent directory navigation with optional Jev suggestions"',
-             f'  homepage "https://github.com/{repository}"', f'  version "{bundle["version"]}"', '  license "MIT"', ""]
+             f'  homepage "https://github.com/{repository}"', '  license "MIT"', ""]
     for os_name, suffix in (("macos", "apple-darwin"), ("linux", "unknown-linux-musl")):
         lines.append(f"  on_{os_name} do")
         if os_name == "macos":
