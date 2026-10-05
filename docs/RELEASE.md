@@ -1,6 +1,6 @@
 # Release and Homebrew
 
-The current VERSION is 0.0.32. Four native Actions builds and their exact installed-package tests passed on 2026-10-05 in [run 37301962036](https://github.com/mreasonyang/j-jump/actions/runs/37301962036), using immutable tag v0.0.32 at source 209cc98d41ebed4bdfba5079790f1053212608e2. The complete four-target bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
+The current VERSION is 0.0.33. This final candidate includes the verified Formula corrections and awaits native acceptance. The previous 0.0.32 candidate passed four native Actions builds and their exact installed-package tests on 2026-10-05 in [run 37301962036](https://github.com/mreasonyang/j-jump/actions/runs/37301962036), using immutable tag v0.0.32 at source 209cc98d41ebed4bdfba5079790f1053212608e2. The complete four-target bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
 | --- | --- |
@@ -36,8 +36,8 @@ separately obtained copy of the root script, the following commands apply **afte
 ```sh
 # Latest stable release (requires a latest redirect to a vX.Y.Z tag)
 sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local"
-# Specific release; v0.0.32 is also accepted
-sh ./install.sh --repository OWNER/REPO --version 0.0.32 --prefix "$HOME/.local"
+# Specific release; v0.0.33 is also accepted
+sh ./install.sh --repository OWNER/REPO --version 0.0.33 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
 sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local" --replace
 sh ./install.sh --help
@@ -74,7 +74,7 @@ Release tools need Python3.9+ and the Rust/C build environment; end users do not
 ```sh
 python3 scripts/release.py check-source
 # For a previously authorized, existing version tag:
-python3 scripts/release.py check-source --tag v0.0.32
+python3 scripts/release.py check-source --tag v0.0.33
 
 # Run on the native target; this does not dispatch or publish anything:
 ./scripts/ci-release.sh aarch64-apple-darwin
