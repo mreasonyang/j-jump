@@ -2,11 +2,26 @@
 
 Independent Rust directory navigation for Bash, Zsh and Fish. Local navigation needs no zoxide, fzf, Python, network or background service. The interface is CLI and optional terminal pickers only.
 
-Current source: **0.0.33**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Native Actions builds and installed-package tests pass on macOS/Linux ARM64 and x86-64. Public release archives are not yet available; see [release status and platform limits](docs/RELEASE.md).
+Current release: **[0.0.33](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.33)**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Native Actions builds and installed-package tests pass on macOS/Linux ARM64 and x86-64. Public archives and Homebrew are available; see [release status and platform limits](docs/RELEASE.md).
 
 ## Install and activate
 
-No prebuilt archives are published yet, so build one from a source checkout. This needs Rust 1.88+ (for example via [rustup](https://rustup.rs)), a C toolchain and Python 3:
+Install the prebuilt release through Homebrew:
+
+```sh
+brew install mreasonyang/taps/j-jump
+```
+
+Or use the platform-detecting download installer, without Rust, Python or jq:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/v0.0.33/install.sh -o j-jump-install.sh
+sh ./j-jump-install.sh --prefix "$HOME/.local"
+```
+
+Both channels provide `jjump` and `j-jump`; shell activation remains manual. The installer supports latest and explicit versions, SHA256 verification and receipt-owned replacement. See [download installation](docs/RELEASE.md#download-installer) for options and platform limits.
+
+To build from source instead, use Rust 1.88+ (for example via [rustup](https://rustup.rs)), a C toolchain and Python 3:
 
 ```sh
 git clone https://github.com/mreasonyang/j-jump.git && cd j-jump
@@ -18,11 +33,6 @@ tar -xzf j-jump-*.tar.gz && cd j-jump-*/
 ```
 
 With an archive from elsewhere, verify and extract it the same way and run its `install.sh`.
-
-The root [download installer](install.sh) is also prepared: it detects macOS/Linux and Intel/ARM64, downloads the
-latest or a specified release, verifies SHA256, and uses the archive installer. It needs standard system tools and curl,
-without Rust, Python or jq. Its default repository has no public release yet; use it once a public release destination
-is available. Options, replacement and platform limits are described in [download installation](docs/RELEASE.md#download-installer).
 
 Choose the commands for your current shell:
 
@@ -114,7 +124,7 @@ Destructive commands require `--apply`; restore also requires it to replace visi
 
 Use [the documentation index](docs/README.md) for installation, configuration and release tooling. Contributors should read [development instructions](AGENTS.md). Design drafts and internal delivery records are kept outside the repository.
 
-`./scripts/test-product.sh` runs local checks. Target support requires tests against the exact installed package, not compilation alone. Unsigned archives carry source/binary hashes and a dependency/license inventory. The manual-only release workflow, Homebrew Formula and platform-detecting installer have passed the distribution checks described in [release status](docs/RELEASE.md). Ordinary pushes do not start Actions; public asset and tap publication remain separately gated. Live service quality and genuine user utility require their own acceptance.
+`./scripts/test-product.sh` runs local checks. Target support requires tests against the exact installed package, not compilation alone. Unsigned archives carry source/binary hashes and a dependency/license inventory. The manual-only release workflow, public Homebrew Formula and platform-detecting installer have passed the distribution checks described in [release status](docs/RELEASE.md). Ordinary pushes do not start Actions; future publication remains explicitly gated. Live service quality and genuine user utility require their own acceptance.
 
 ## License
 

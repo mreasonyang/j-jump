@@ -1,6 +1,6 @@
 # Release and Homebrew
 
-The current VERSION is 0.0.33. Four native Actions builds and their exact installed-package tests passed on 2026-10-05 in [run 37305476600](https://github.com/mreasonyang/j-jump/actions/runs/37305476600), using immutable tag v0.0.33 at source cc6933f86ce2e910183c3ef2da089a612742a393. The complete four-target bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
+The current VERSION is 0.0.33, published as [J-Jump 0.0.33](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.33). Four native Actions builds and their exact installed-package tests passed on 2026-10-05 in [run 37305476600](https://github.com/mreasonyang/j-jump/actions/runs/37305476600), using immutable tag v0.0.33 at source cc6933f86ce2e910183c3ef2da089a612742a393. All four public archives, checksum sidecars and the release manifest match the verified Actions bundle byte-for-byte after anonymous downloads. The bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
 | --- | --- |
@@ -9,9 +9,9 @@ The current VERSION is 0.0.33. Four native Actions builds and their exact instal
 | aarch64-unknown-linux-musl | Passed on ubuntu-24.04-arm |
 | x86_64-unknown-linux-musl | Passed on ubuntu-24.04 |
 
-Native macOS ARM Homebrew installation, Formula tests, Bash/Zsh/Fish navigation, reinstallation, real 0.0.30 to 0.0.33 upgrade and data-preserving uninstall also pass against the exact Actions archive and unmodified CI-generated Formula. Strict Formula audits cover all OS/CPU branches. This acceptance uses an isolated preseeded Homebrew cache, including the prior-version archive for the controlled upgrade. It establishes the Formula and installed-product behavior; it does not exercise an anonymous public release URL. Binary assets and the remote tap are not published yet and require explicit publication scope.
+The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified CI-generated Formula. Native macOS ARM public installation from an initially empty Homebrew cache, Formula tests, Bash/Zsh/Fish navigation, reinstallation, already-current upgrade and data-preserving uninstall pass. The publicly downloaded archive and installed binary hashes match the Actions bundle. Strict Formula audits cover all OS/CPU branches. A separate controlled native Homebrew upgrade from 0.0.30 to 0.0.33 also passes using exact archives in an isolated cache; 0.0.30 is not a published version in this fresh public repository.
 
-The archive installer separately passes 0.0.30 to 0.0.33 replacement, unchanged repeat installation and uninstall on the current macOS ARM host. Config/history, foreign commands and startup files remain unchanged. The root downloader also passes its 20 checks with this exact native archive through real curl and a local TLS fixture. Anonymous source-tag retrieval of the installer is verified; a requested unpublished release fails without creating the prefix or modifying user data.
+The archive installer separately passes 0.0.30 to 0.0.33 replacement, unchanged repeat installation and uninstall on the current macOS ARM host. The public root downloader passes latest installation, unchanged repeat and explicit v0.0.33 replacement, followed by three-shell navigation and bundled-installer removal. Config/history, foreign commands and startup files remain unchanged, and download scratch directories are removed. Its 20 native checks also pass with this exact archive through real curl and a local TLS fixture, including missing-release refusal without prefix or user-data mutation.
 
 ## Download installer
 
@@ -29,9 +29,7 @@ and sha256sum or shasum, plus standard POSIX tools. It requires no Rust, Python 
 
 Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection fixtures cover target selection; the native Actions runs above additionally exercise each target's real archive through the TLS downloader and installed lifecycle.
 
-The default repository is `mreasonyang/j-jump`, which is public and has no release assets yet. The script
-therefore reports unavailable releases without installing. `--repository OWNER/REPO` selects another public asset
-destination; this flag does not create or publish anything. The following commands apply **after the public release is available**:
+The default repository is `mreasonyang/j-jump`, with public 0.0.33 assets. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
 
 ```sh
 # Obtain the installer from the immutable source tag.
@@ -54,7 +52,7 @@ extracted archive, as described in the [archive instructions](../packaging/READM
 Downloads use HTTPS-only redirects with TLS verification, a 10-second connection timeout, a 120-second request timeout,
 at most 5 redirects, a 1KiB sidecar limit and a 128MiB archive limit. A private temporary directory is removed on completion,
 failure or interruption. SHA256 verifies integrity against the sidecar from the same release; it is not a signature and
-does not independently authenticate a publisher. Public anonymous download acceptance remains deferred.
+does not independently authenticate a publisher. Anonymous downloads of all four targets and native macOS ARM public installation have passed.
 
 Offline downloader tests run with `python3 -m unittest discover -s tests -p test_download_installer.py -v`. They include
 a local TLS server with real curl and refusal of an HTTP downgrade. The native lifecycle is opt-in via
@@ -120,15 +118,15 @@ The generated Formula downloads prebuilt archives, installs both current names d
 
 The existing public tap is `mreasonyang/homebrew-taps`, with root flomo.rb. Place j-jump.rb at that root too: introducing Formula/ alone would hide the existing root Formula under Homebrew's directory-discovery rules. The update helper writes only j-jump.rb, refuses dirty/non-main/foreign tap checkouts and reads back an ordinary main push.
 
-## Deferred publication
+## Publication
 
-The public source repository is `mreasonyang/j-jump`. Binary release assets and the Homebrew channel still need separate publication and verification. A public Formula requires anonymously accessible release downloads; making source public does not publish those assets.
+The public source and release repository is `mreasonyang/j-jump`; the Homebrew channel is `mreasonyang/taps/j-jump`. Release 0.0.33 contains four native archives, their four SHA256 sidecars and a source-bound release manifest. Publication used the guarded release and tap helpers with the accepted Actions bundle and existing local gh/git authorization. The hosted build/bundle jobs passed; the workflow's optional publisher and tap jobs were skipped in that build run.
 
-For later authorized execution, the release destination comes from `J_JUMP_RELEASE_REPOSITORY`; otherwise it is the source repository. Publication refuses private destinations. Same-repository publication uses the job's contents-write GITHUB_TOKEN; a different release repository and the tap need a scoped `J_JUMP_DISTRIBUTION_TOKEN` stored through GitHub's secret UI. Do not put token values in chat or tracked files.
+For future authorized hosted publication, the release destination comes from `J_JUMP_RELEASE_REPOSITORY`; otherwise it is the source repository. Publication refuses private destinations. Same-repository publication uses the job's contents-write GITHUB_TOKEN; a different release repository and the tap need a scoped `J_JUMP_DISTRIBUTION_TOKEN` stored through GitHub's secret UI. Do not put token values in chat or tracked files.
 
 The publisher verifies the full source-bound bundle, refuses an existing release, uploads a draft, downloads and rechecks it, publishes, then verifies anonymous archive downloads. Failure stops before tap update. Interrupted draft/publication states require inspection; the tooling never overwrites or deletes existing release assets. Homebrew updates are opt-in in the same run and occur only after that publication step succeeds. Preflight refuses a tap update before publication when its scoped credential is missing.
 
-After the public channel is actually published and verified, its intended user entry points are:
+The published user entry points are:
 
 ```sh
 brew install mreasonyang/taps/j-jump
@@ -136,11 +134,10 @@ brew upgrade mreasonyang/taps/j-jump
 brew uninstall mreasonyang/taps/j-jump
 ```
 
-These commands are not currently an available release claim. Anonymous download and Homebrew acceptance against the published channel remain required after publication. Local tests, cached Homebrew acceptance, remote source readback, hosted target tests and public installation are separate evidence states.
+Public Homebrew installation, testing, reinstallation, current-version upgrade and uninstall have passed on macOS ARM. The initially empty cache verifies the real public download path. The prior-version upgrade fixture and four native Actions jobs provide their separately described evidence.
 
 ## Platform and distribution limits
 
-The four archive targets have native Actions acceptance. Homebrew lifecycle execution has been measured on macOS ARM; Formula audits cover all OS/CPU branches, and other native Homebrew lifecycle environments have not been measured. Public downloads and the Homebrew
-channel are unavailable until their artifacts are published and independently verified. macOS packages are unsigned;
+The four archive targets have native Actions acceptance and verified public downloads. Homebrew lifecycle execution has been measured on macOS ARM; Formula audits cover all OS/CPU branches, and other native Homebrew lifecycle environments have not been measured. macOS packages are unsigned;
 checksums bind their identities and do not establish notarization. Linux Secret Service prompts, terminal behavior,
 live-provider effectiveness and genuine-user utility require their own acceptance.
