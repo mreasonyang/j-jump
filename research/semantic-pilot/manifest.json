@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "dataset_version": "pilot-2-portable",
+  "created": "2026-09-22",
+  "provenance": "assistant-authored synthetic; not real user data, blind human gold, or production acceptance",
+  "semantic_cases": 48,
+  "semantic_families": 24,
+  "languages": [
+    "en",
+    "zh"
+  ],
+  "development_cases": 16,
+  "heldout_cases": 32,
+  "routing_controls": 24,
+  "routing_families": 12,
+  "split_rule": "Both translations of a family remain in one split; fixed before provider calls. Author has seen labels, so heldout is operational only, not independently blind.",
+  "arm": "supplied-shortlist conditional reranking; no production retrieval claim",
+  "files": {
+    "cases.jsonl": "28f6feec49988ab36aa6e2bc7fe1ff76ac9a3029266cd1d8786c6876b36db51f",
+    "routing-controls.jsonl": "8936707caf5a30f139a17bbbf44da28c25e802f0f4f63ae2e4dce277c6ec8866"
+  },
+  "id_policy": "Opaque IDs and candidate order permuted independently of gold labels, deterministic per case."
+}

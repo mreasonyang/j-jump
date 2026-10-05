@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "study": "half-life-0031",
+  "runtime_baseline": "9c19cd7cccc20b8e4406898c323c5043e6e39e55",
+  "incumbent_days": 7,
+  "half_lives_days": [
+    1,
+    3,
+    7,
+    14,
+    30,
+    60
+  ],
+  "controls": [
+    "frequency",
+    "recency"
+  ],
+  "candidates": 4,
+  "warmup_days": 60,
+  "evaluation_days": 120,
+  "dominant_probability": 0.8,
+  "base_timestamp": 1800000000,
+  "seed_rule": "SHA256 of split/family/rate/variant/seed; first 8 digest bytes as big-endian Random seed",
+  "splits": {
+    "calibration": {
+      "rates_per_active_day": [
+        2,
+        12
+      ],
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    "holdout": {
+      "rates_per_active_day": [
+        5,
+        24
+      ],
+      "seeds": [
+        1000,
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007,
+        1008,
+        1009,
+        1010,
+        1011,
+        1012,
+        1013,
+        1014,
+        1015,
+        1016,
+        1017,
+        1018,
+        1019,
+        1020,
+        1021,
+        1022,
+        1023,
+        1024,
+        1025,
+        1026,
+        1027,
+        1028,
+        1029,
+        1030,
+        1031
+      ]
+    }
+  },
+  "families": {
+    "stable": {
+      "calibration": [
+        0.7,
+        0.9
+      ],
+      "holdout": [
+        0.6,
+        0.8
+      ]
+    },
+    "switch": {
+      "calibration": [
+        7,
+        28
+      ],
+      "holdout": [
+        14,
+        56
+      ]
+    },
+    "burst": {
+      "calibration": [
+        [
+          1,
+          2
+        ],
+        [
+          3,
+          4
+        ]
+      ],
+      "holdout": [
+        [
+          2,
+          3
+        ],
+        [
+          5,
+          2
+        ]
+      ],
+      "cycle_days": 28,
+      "offset_days": 4
+    },
+    "periodic": {
+      "calibration": [
+        7,
+        28
+      ],
+      "holdout": [
+        14,
+        21
+      ]
+    },
+    "sparse": {
+      "calibration": [
+        3,
+        10
+      ],
+      "holdout": [
+        5,
+        14
+      ]
+    },
+    "holiday": {
+      "calibration": [
+        14,
+        60
+      ],
+      "holdout": [
+        30,
+        90
+      ]
+    }
+  },
+  "decision": {
+    "calibration_family_guard_pp": 1.0,
+    "minimum_macro_gain_pp": 1.0,
+    "maximum_family_loss_pp": 1.0,
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 313131,
+    "macro_lower_quantile": 0.025,
+    "family_simultaneous_lower_quantile": 0.008333333333333333,
+    "selection": "best calibration macro among challengers whose every family delta vs7 >= -0.01; if none, best macro challenger is diagnostic only and cannot trigger switch; ties prefer smallest log2 distance to7 then fewer days",
+    "holdout": "one frozen selected challenger vs7 plus the two context controls; no reselection",
+    "switch_rule": "calibration eligible AND holdout macro delta>=0.01 AND paired trace bootstrap macro lower>0 AND all family simultaneous lower>=-0.01 AND invariant checks pass"
+  },
+  "limits": [
+    "Synthetic next-project-visit prediction under identical lexical tiers, not observed user query intent",
+    "Every project visit is followed by a return to a neutral directory; the implicit neutral never matches api and is cwd at prediction",
+    "No real store, new telemetry, query/selection history or network calls",
+    "Disjoint seeds AND generator parameter values between splits; scenario families are shared",
+    "Bootstrap intervals describe this fixed synthetic generator, not a human population"
+  ],
+  "execution_details": {
+    "family_order": [
+      "stable",
+      "switch",
+      "burst",
+      "periodic",
+      "sparse",
+      "holiday"
+    ],
+    "loop_order": [
+      "family",
+      "rate",
+      "variant_index",
+      "seed"
+    ],
+    "seed_text": "{split}/{family}/{rate}/{variant_index}/{seed}",
+    "project_permutation": "Random(trace_seed).shuffle([d0,d1,d2,d3]) before event draws; target draw random()<p then choice(other IDs in semantic project order)",
+    "paths": "/study/{id}/api",
+    "event_seconds": "day*86400+28800+floor(i*36000/(N-1)), i=0..N-1, N>=2; holiday return day ordinary events use 28860+floor(i*35940/(N-1))",
+    "holiday_gap": "no events on days60..60+gap-1; return day60+gap; evaluation days120 measured from return",
+    "auxiliary_denominator": "ordinary evaluation events with target already recorded; all masks independent of predictions",
+    "auxiliary_masks": {
+      "switch": "eval_day%period<14",
+      "burst_recovery": "offset+duration<=eval_day%28<offset+duration+2",
+      "holiday": "first10 ordinary evaluation events",
+      "sparse": "all ordinary evaluation events (revisits); report by interval and rate"
+    },
+    "calibration_tie_tolerance": 1e-12,
+    "bootstrap_order": "replicate then family in family_order; Random(313131).choices(paired_trace_deltas,k=len(family))",
+    "quantile": "linear interpolation at index (n-1)*q in sorted replicates",
+    "holdout_guard": "do not generate, read, parity-check or evaluate holdout before frozen selection; production parity uses calibration traces and hand-written edge cases only"
+  }
+}

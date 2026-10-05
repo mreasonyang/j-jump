@@ -1,0 +1,76 @@
+# Rust and Cargo build outputs
+target/
+**/*.rs.bk
+!Cargo.lock
+
+# Generated packages and coverage
+/dist/
+/coverage/
+
+# Generated measurements and internal development records
+/specs/
+/.agents/
+/docs/*
+!/docs/README.md
+!/docs/CONFIGURATION-AND-HELP.md
+!/docs/RELEASE.md
+**/SPEC.md
+**/DESIGN.md
+**/PLAN.md
+**/PROGRESS.md
+/research/half-life-0031/PROTOCOL.md
+/research/adapter-live/
+/research/jev-latency/
+/research/semantic-benchmark-v2/
+/research/semantic-binary-v1/
+/research/synthetic-live/
+/research/zoxide-review/
+*.profraw
+*.profdata
+lcov.info
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
+*.p12
+*.pfx
+/credentials/
+/secrets/
+
+# Repository-local J-Jump state and ad-hoc root databases.
+# Nested database fixtures such as tests/fixtures/*.sqlite remain trackable.
+/.j-jump/
+/local-data/
+/*.db
+/*.db-shm
+/*.db-wal
+/*.sqlite
+/*.sqlite-shm
+/*.sqlite-wal
+/*.sqlite3
+/*.sqlite3-shm
+/*.sqlite3-wal
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Python workflow tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride

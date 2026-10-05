@@ -1,0 +1,281 @@
+{
+  "name": "J-Jump release preparation (manual only)",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "tag": {
+          "description": "Existing main-line source tag, for example v0.0.27",
+          "required": true,
+          "type": "string"
+        },
+        "publish": {
+          "description": "Publish verified assets after separate authorization and activation",
+          "type": "boolean",
+          "default": false
+        },
+        "update_homebrew": {
+          "description": "Update the public tap after successful public publication",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "j-jump-release-${{ inputs.tag }}",
+    "cancel-in-progress": false
+  },
+  "defaults": {
+    "run": {
+      "shell": "bash"
+    }
+  },
+  "jobs": {
+    "preflight": {
+      "if": "${{ vars.J_JUMP_ACTIONS_ENABLED == 'true' }}",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ inputs.tag }}",
+            "fetch-depth": 0,
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "with": {
+            "python-version": "3.13"
+          }
+        },
+        {
+          "name": "Validate source, gates and local policy",
+          "env": {
+            "RELEASE_TAG": "${{ inputs.tag }}",
+            "REQUEST_PUBLISH": "${{ inputs.publish }}",
+            "REQUEST_TAP": "${{ inputs.update_homebrew }}",
+            "PUBLISH_ENABLED": "${{ vars.J_JUMP_PUBLISH_ENABLED }}"
+          },
+          "run": "set -euo pipefail\nif [[ \"$REQUEST_PUBLISH\" == true && \"$PUBLISH_ENABLED\" != true ]]; then echo \"Publication is deferred; activate it only after separate authorization\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$REQUEST_PUBLISH\" != true ]]; then echo \"Tap update requires publication in the same run\" >&2; exit 1; fi\ngit merge-base --is-ancestor HEAD refs/remotes/origin/main\ngit switch -C main\n./scripts/install-hooks.sh\npython3 scripts/release.py check-source --tag \"$RELEASE_TAG\"\npython3 -m unittest discover -s tests -p 'test_*.py'\n./scripts/verify-workflow.sh --local"
+        }
+      ]
+    },
+    "build": {
+      "needs": "preflight",
+      "runs-on": "${{ matrix.runner }}",
+      "timeout-minutes": 60,
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "include": [
+            {
+              "runner": "macos-15",
+              "target": "aarch64-apple-darwin"
+            },
+            {
+              "runner": "macos-15-intel",
+              "target": "x86_64-apple-darwin"
+            },
+            {
+              "runner": "ubuntu-24.04",
+              "target": "x86_64-unknown-linux-musl"
+            },
+            {
+              "runner": "ubuntu-24.04-arm",
+              "target": "aarch64-unknown-linux-musl"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ inputs.tag }}",
+            "fetch-depth": 0,
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "with": {
+            "python-version": "3.13"
+          }
+        },
+        {
+          "name": "Install fixed Rust toolchain",
+          "run": "rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy\nrustup default 1.98.0"
+        },
+        {
+          "name": "Install Linux test/build dependencies",
+          "if": "${{ runner.os == 'Linux' }}",
+          "run": "sudo apt-get update\nsudo apt-get install -y zsh fish fzf pkg-config musl-tools"
+        },
+        {
+          "name": "Install macOS test dependencies",
+          "if": "${{ runner.os == 'macOS' }}",
+          "env": {
+            "HOMEBREW_NO_AUTO_UPDATE": "1"
+          },
+          "run": "brew install fish fzf"
+        },
+        {
+          "name": "Test source and exact installed archive",
+          "env": {
+            "RELEASE_TARGET": "${{ matrix.target }}",
+            "RELEASE_TAG": "${{ inputs.tag }}"
+          },
+          "run": "git switch -C main\n./scripts/ci-release.sh \"$RELEASE_TARGET\" \"$RELEASE_TAG\""
+        },
+        {
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "release-${{ matrix.target }}",
+            "path": "dist/*.tar.gz\ndist/*.tar.gz.sha256",
+            "if-no-files-found": "error",
+            "retention-days": 7
+          }
+        }
+      ]
+    },
+    "bundle": {
+      "needs": "build",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ inputs.tag }}",
+            "fetch-depth": 0,
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "with": {
+            "python-version": "3.13"
+          }
+        },
+        {
+          "uses": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+          "with": {
+            "pattern": "release-*",
+            "path": "dist",
+            "merge-multiple": true
+          }
+        },
+        {
+          "name": "Verify complete bundle and generate Formula",
+          "env": {
+            "RELEASE_TAG": "${{ inputs.tag }}",
+            "RELEASE_REPOSITORY": "${{ vars.J_JUMP_RELEASE_REPOSITORY || github.repository }}"
+          },
+          "run": "python3 scripts/release.py check-source --tag \"$RELEASE_TAG\"\npython3 scripts/release.py verify --dist dist --version \"$(cat VERSION)\" --source-sha \"$(git rev-parse HEAD)\" --output dist/release-manifest.json\npython3 scripts/release.py formula --dist dist --release-repository \"$RELEASE_REPOSITORY\" --output dist/j-jump.rb\nruby -c dist/j-jump.rb"
+        },
+        {
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "verified-release-bundle",
+            "path": "dist/",
+            "if-no-files-found": "error",
+            "retention-days": 7
+          }
+        }
+      ]
+    },
+    "publish": {
+      "needs": "bundle",
+      "if": "${{ inputs.publish && vars.J_JUMP_PUBLISH_ENABLED == 'true' }}",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 15,
+      "permissions": {
+        "contents": "write"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ inputs.tag }}",
+            "fetch-depth": 0,
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "with": {
+            "python-version": "3.13"
+          }
+        },
+        {
+          "uses": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+          "with": {
+            "name": "verified-release-bundle",
+            "path": "dist"
+          }
+        },
+        {
+          "name": "Publish verified public assets and check anonymous downloads",
+          "env": {
+            "GH_TOKEN": "${{ secrets.J_JUMP_DISTRIBUTION_TOKEN || github.token }}",
+            "J_JUMP_PUBLISH_ENABLED": "${{ vars.J_JUMP_PUBLISH_ENABLED }}",
+            "RELEASE_REPOSITORY": "${{ vars.J_JUMP_RELEASE_REPOSITORY || github.repository }}",
+            "RELEASE_TAG": "${{ inputs.tag }}"
+          },
+          "run": "python3 scripts/publish-release.py --dist dist --release-repository \"$RELEASE_REPOSITORY\" --tag \"$RELEASE_TAG\""
+        }
+      ]
+    },
+    "homebrew": {
+      "needs": "publish",
+      "if": "${{ inputs.update_homebrew && vars.J_JUMP_PUBLISH_ENABLED == 'true' }}",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 15,
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ inputs.tag }}",
+            "fetch-depth": 0,
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "with": {
+            "python-version": "3.13"
+          }
+        },
+        {
+          "uses": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+          "with": {
+            "name": "verified-release-bundle",
+            "path": "dist"
+          }
+        },
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "repository": "mreasonyang/homebrew-taps",
+            "ref": "main",
+            "path": "homebrew-tap",
+            "token": "${{ secrets.J_JUMP_DISTRIBUTION_TOKEN }}"
+          }
+        },
+        {
+          "name": "Deliver only the current verified Formula",
+          "env": {
+            "J_JUMP_PUBLISH_ENABLED": "${{ vars.J_JUMP_PUBLISH_ENABLED }}",
+            "RELEASE_REPOSITORY": "${{ vars.J_JUMP_RELEASE_REPOSITORY || github.repository }}"
+          },
+          "run": "python3 scripts/update-homebrew-tap.py --dist dist --tap-worktree homebrew-tap --release-repository \"$RELEASE_REPOSITORY\""
+        }
+      ]
+    }
+  }
+}

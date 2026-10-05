@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+zero=0000000000000000000000000000000000000000
+changed_since=
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_ref" in
+        refs/heads/main)
+            ;;
+        refs/tags/*)
+            # Tags do not update the main branch, but the repository still verifies below.
+            continue
+            ;;
+        refs/heads/*)
+            printf '%s\n' "main-only policy: refusing push of $local_ref" >&2
+            exit 1
+            ;;
+        *)
+            continue
+            ;;
+    esac
+
+    if [ "$local_sha" = "$zero" ]; then
+        printf '%s\n' "main-only policy: refusing deletion of main" >&2
+        exit 1
+    fi
+
+    if [ "$remote_sha" != "$zero" ]; then
+        if ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+            printf '%s\n' "refusing non-fast-forward main update" >&2
+            exit 1
+        fi
+        changed_since=$remote_sha
+    fi
+done
+
+if [ -n "$changed_since" ]; then
+    "$repo_root/scripts/verify-workflow.sh" --local --changed-since "$changed_since"
+else
+    "$repo_root/scripts/verify-workflow.sh" --local
+fi
