@@ -129,7 +129,8 @@
           "name": "Test source and exact installed archive",
           "env": {
             "RELEASE_TARGET": "${{ matrix.target }}",
-            "RELEASE_TAG": "${{ inputs.tag }}"
+            "RELEASE_TAG": "${{ inputs.tag }}",
+            "skip_global_compinit": "1"
           },
           "run": "git switch -C main\n./scripts/ci-release.sh \"$RELEASE_TARGET\" \"$RELEASE_TAG\""
         },
