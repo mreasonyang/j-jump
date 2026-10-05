@@ -4,7 +4,7 @@
 
 | Task | Guide |
 | --- | --- |
-| Install and navigate | [Project README](../README.md), [archive installation](../packaging/README.md) |
+| Install and navigate | [Project README](../README.md) ([简体中文](../README.zh-CN.md)), [archive installation](../packaging/README.md) |
 | Configure privacy, credentials and recovery | [Configuration and help](CONFIGURATION-AND-HELP.md) |
 | Build packages and use release tooling | [Release tools and platform limits](RELEASE.md) |
 | Contribute code | [Development instructions](../AGENTS.md) |

@@ -58,7 +58,7 @@ PROCESS_FILES = (
     "specs/ERRATA.md", "specs/README.md", "specs/iterations/_template/SPEC.md",
 )
 PUBLIC_MARKDOWN = {
-    "AGENTS.md", "README.md", "LICENSE.md", "docs/README.md",
+    "AGENTS.md", "README.md", "README.zh-CN.md", "LICENSE.md", "docs/README.md",
     "docs/CONFIGURATION-AND-HELP.md", "docs/RELEASE.md", "packaging/README.md",
     "research/semantic-pilot/README.md", "research/half-life-0031/README.md",
 }

@@ -1,26 +1,250 @@
+<div align="center">
+
 # J-Jump
 
-Independent Rust directory navigation for Bash, Zsh and Fish. Local navigation needs no zoxide, fzf, Python, network or background service. The interface is CLI and optional terminal pickers only.
+**Jump to any folder by name, by meaning or in any language, straight from your shell.**
 
-Current release: **[0.0.33](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.33)**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Native Actions builds and installed-package tests pass on macOS/Linux ARM64 and x86-64. Public archives and Homebrew are available; see [release status and platform limits](docs/RELEASE.md).
+[![Latest release](https://img.shields.io/github/v/release/mreasonyang/j-jump?sort=semver)](https://github.com/mreasonyang/j-jump/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+![Platforms: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+![Shells: Bash | Zsh | Fish](https://img.shields.io/badge/shell-bash%20%7C%20zsh%20%7C%20fish-4EAA25)
 
-## Install and activate
+**English** · [简体中文](README.zh-CN.md)
 
-Install the prebuilt release through Homebrew:
+</div>
+
+```text
+~ ❯ j pay
+~/code/billing-service/internal/payments ❯ j k8s
+~/code/acme-api/deploy/k8s ❯ ji my cv
+Checking with Jev...
+Jev suggestion: first; choose explicitly
+Choose a directory
+1. ~/Documents/resumes [Jev]
+2. ~/My Projects
+3. ~/go
+…
+> 1
+~/Documents/resumes ❯ ji 税务
+…
+1. ~/Documents/taxes [Jev]
+…
+> 1
+~/Documents/taxes ❯
+```
+
+You never typed "resumes" or "taxes". J-Jump remembers the folders you visit, takes you to the right one by a few
+letters of its name and, with the optional Jev semantic model, finds it by what it means, even in another language.
+
+## Why J-Jump
+
+- **By name, instantly.** `j pay` jumps to the best match among folders you've actually visited. Ranking happens on
+  your machine and uses no network.
+- **By meaning, with Jev.** Can't remember the folder's name? `ji my cv` asks Jev which folder you mean.
+- **In any language.** `ji 税务` finds `taxes`; `ji machine learning experiments` finds `机器学习实验`.
+- **You stay in control.** Jev is off until you turn it on. It only suggests: nothing moves until you pick. In the
+  default strict mode, it receives only your query and folder names.
+- **Small and native.** One Rust binary for Bash, Zsh and Fish on macOS and Linux. No runtime or plugin manager is
+  needed, and no background service runs for local navigation.
+
+## Quick start
+
+### 1. Install
+
+**Homebrew**:
 
 ```sh
 brew install mreasonyang/taps/j-jump
 ```
 
-Or use the platform-detecting download installer, without Rust, Python or jq:
+**Install script** (macOS 15+ or Linux; x86-64 or ARM64):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh
 ```
 
-Both channels provide `jjump` and `j-jump`; shell activation remains manual. The download installer automatically chooses the latest stable release. Use `--version X.Y.Z` only when you want a specific release. Downloads use SHA256 verification and receipt-owned replacement. See [download installation](docs/RELEASE.md#download-installer) for options and platform limits.
+The script picks the right build for your system, verifies its SHA-256 checksum and installs `jjump` (plus the
+equivalent `j-jump`) into `~/.local/bin`. It needs no sudo and never edits your shell files.
+[Script options](docs/RELEASE.md#download-installer).
 
-To build from source instead, use Rust 1.88+ (for example via [rustup](https://rustup.rs)), a C toolchain and Python 3:
+### 2. Connect your shell
+
+Add one line to your shell's startup file, then open a new terminal:
+
+```sh
+# Bash: ~/.bashrc
+eval "$(jjump init bash)"
+
+# Zsh: ~/.zshrc
+eval "$(jjump init zsh)"
+
+# Fish: ~/.config/fish/config.fish
+jjump init fish | source
+```
+
+If you used the install script and `~/.local/bin` isn't on your `PATH` yet, put `export PATH="$HOME/.local/bin:$PATH"`
+(Fish: `fish_add_path ~/.local/bin`) above that line.
+
+> Already use `j` for something else? `jjump init zsh --cmd jump` creates `jump` and `jumpi` instead. J-Jump refuses
+> to overwrite existing `j`/`ji` commands.
+
+### 3. Start jumping
+
+Keep using `cd` as usual. J-Jump starts with an empty history and learns each folder you visit. The first time you run
+`j` or `ji`, a short setup wizard opens; choose local-only if you don't want Jev yet, which needs no key. You can
+change everything later with `jjump setup`.
+
+## Everyday use
+
+| Command | What it does |
+| --- | --- |
+| `j pay` | Jump to the best visited folder matching `pay` |
+| `j api server` | Match several words in order along the path |
+| `j api /` | Only search inside the current folder |
+| `j` | Go to your home folder |
+| `j -` | Go back to the previous folder |
+| `j ../dir`, `j -- 'my folder'` | Plain paths work too |
+| `ji` | Browse your history in a numbered list |
+| `ji pay` | Choose from matches; asks Jev first when it's enabled |
+| `j pay ` then <kbd>Tab</kbd> | Choose a match into the command line, then press <kbd>Enter</kbd> to go |
+
+**How matches are ranked:** exact folder name, then prefix, then substring, then a match on a parent folder. Within each
+tier, folders you visit often and recently come first; visit weight halves every seven days. Run `jjump explain pay` to
+see the ranking.
+
+**In the picker:** type a number to jump, `n`/`p` to change page, `v 3` to see a full path, and Enter or `q` to cancel.
+If you prefer fuzzy filtering, install [fzf](https://github.com/junegunn/fzf) and set `export J_JUMP_PICKER=fzf`.
+
+## Jev: find folders by meaning
+
+Jev is an optional semantic model service. It is **off by default**, and local navigation never needs it.
+
+**Turn it on** with `jjump setup`: choose Jev and paste your key. Input is hidden, and the key is saved to your OS
+credential store, never to a file. Alternatively, set `TYPESAFE_API_KEY` in your environment and run
+`jjump config set semantic on`. A key alone never enables requests.
+
+**When Jev is asked:**
+
+- `j pay` with a local match jumps immediately and never contacts Jev. Only when nothing matches locally may it ask Jev.
+- `ji QUERY` and <kbd>Tab</kbd> completion with a query ask Jev when it's enabled. A bare `ji`, `--offline` and
+  `J_JUMP_OFFLINE=1` stay local.
+- Jev's pick is marked `[Jev]` at the top of the list, and you still choose. Cancelling never picks anything.
+- With the default `consent ask`, J-Jump confirms before each request. `jjump config set consent always` skips that.
+  The Jev service may charge per request.
+- A request waits up to 10 seconds. While waiting, press Enter to switch to local choices or `W` to keep waiting.
+  Errors, timeouts and "not sure" answers stop without moving you.
+
+### What Jev can see
+
+| `privacy` setting | Sent to Jev |
+| --- | --- |
+| `strict` (default) | Your query and candidate folder names |
+| `balanced` | Plus each folder's parent name, the current folder's name and a low/medium/high visit level |
+| `full` | Like `balanced`, but with full parent and current folder paths |
+
+File contents, Git remotes, environment variables, shell history and credentials are **never** sent. Folder names and
+queries can themselves be sensitive, so you have more controls:
+
+- `jjump preview "my cv"` prints the exact request without sending anything.
+- `no_send` folders still work locally but are never sent to Jev, and Jev is off while you're inside them.
+- `exclude` folders are never recorded or searched at all.
+
+```sh
+jjump config set no_send '["/work/private-client"]'
+jjump config set exclude '["/work/scratch"]'
+```
+
+## Configuration
+
+Use the interactive `jjump setup`, or `jjump config set KEY VALUE`. `jjump config show` prints current values, and
+`jjump doctor` runs offline checks with next steps.
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `semantic` | `on`, `off` | `off` |
+| `consent` | `ask`, `always` | `ask` |
+| `privacy` | `strict`, `balanced`, `full` | `strict` |
+| `tracking` | `on`, `off` | `on` |
+| `exclude`, `no_send` | JSON array of absolute paths | `[]` |
+| `language` | `auto`, `en`, `zh` | `auto` |
+| `semantic_route` | `local_first`, `force` (always ask Jev; you still choose) | `local_first` |
+| `candidate_limit` | `1`–`254` folder groups offered to Jev | `254` |
+
+| Environment variable | Effect |
+| --- | --- |
+| `TYPESAFE_API_KEY` | Jev key; takes priority over the stored key |
+| `J_JUMP_PICKER` | `fzf` or `numbered` (default) |
+| `J_JUMP_OFFLINE=1` | Keep this command local |
+| `J_JUMP_LANG` | `en` or `zh` messages |
+| `J_JUMP_CONFIG` | Use another config file (`--config` takes priority) |
+| `J_JUMP_HOME` | Keep config, history and cache under another absolute folder (the OS credential entry is still shared) |
+
+Files live in `~/Library/Application Support/j-jump` and `~/Library/Caches/j-jump` on macOS, and in the XDG folders
+`~/.config/j-jump`, `~/.local/share/j-jump` and `~/.cache/j-jump` on Linux.
+
+## Your history and data
+
+```sh
+jjump history list
+jjump history forget --preview -- /work/old-project
+jjump history prune                 # preview visits to folders that no longer exist
+jjump config set tracking off       # pause recording
+mkdir -m 700 ~/jjump-backup && jjump history backup ~/jjump-backup/visits.json
+jjump history restore ~/jjump-backup/visits.json    # validates; add --apply to replace
+jjump history clear --preview
+jjump data clear --preview          # history and cached Jev answers
+jjump credential delete             # remove the stored Jev key (preview)
+```
+
+Anything that deletes or replaces data shows a preview first; add `--apply` to do it. Backups must sit in a private
+(`chmod 700`) folder. Deleting is not secure erasure.
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| `j foo` finds nothing | J-Jump only knows folders visited since you installed it. `cd` there once, or check with `jjump explain foo`. |
+| `j` or `ji` is already taken | Initialize with `--cmd jump` to get `jump` and `jumpi`. |
+| <kbd>Tab</kbd> doesn't insert a choice in Bash | Your terminal didn't answer Bash's cursor query; the line is left as it was. Use `ji foo` instead. |
+| Linux can't save the key | The OS credential store needs a Secret Service session, such as GNOME Keyring. Or use `TYPESAFE_API_KEY`. |
+| An error mentions an old or unknown format | J-Jump is pre-1.0 and reads only its current state formats. Your files are left untouched; `jjump doctor` shows the remedy. |
+| Anything else | Run `jjump doctor`. It's offline and suggests next steps. |
+
+Exit codes for scripts: `2` input, `3` no match, `4` selection required, `5` Jev, `6` path, `7` state, `130` cancelled.
+
+## Update and uninstall
+
+| | Homebrew | Install script |
+| --- | --- | --- |
+| Update | `brew upgrade mreasonyang/taps/j-jump` | Re-run the installer with `--replace` (below) |
+| Uninstall | `brew uninstall mreasonyang/taps/j-jump` | Run `install.sh --uninstall` from a [release archive](packaging/README.md#replace-recover-and-remove) |
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --replace
+```
+
+Uninstalling keeps your settings, history and stored key; clear them first with the commands above if you want them gone.
+Remove the `jjump init` line from your shell's startup file too.
+
+## Platforms
+
+| System | Install script | Homebrew |
+| --- | --- | --- |
+| macOS 15+ on Apple silicon | ✅ | ✅ |
+| macOS 15+ on Intel | ✅ | Available |
+| Linux x86-64 (static musl build) | ✅ | Available |
+| Linux ARM64 (static musl build) | ✅ | Available |
+
+✅ means the installed release passes native tests on that system; "Available" means the Formula supports it but that
+Homebrew route hasn't been tested natively yet. Binaries are unsigned (no macOS notarization);
+installers check SHA-256 checksums instead. Windows, 32-bit systems and macOS before 15 aren't supported.
+Details: [release status and platform limits](docs/RELEASE.md).
+
+<details>
+<summary><b>Build from source</b></summary>
+
+You need Rust 1.88+ (for example via [rustup](https://rustup.rs)), a C toolchain and Python 3. SQLite and TLS are built
+in.
 
 ```sh
 git clone https://github.com/mreasonyang/j-jump.git && cd j-jump
@@ -31,100 +255,22 @@ tar -xzf j-jump-*.tar.gz && cd j-jump-*/
 ./install.sh --prefix "$HOME/.local"
 ```
 
-With an archive from elsewhere, verify and extract it the same way and run its `install.sh`.
+See [archive installation](packaging/README.md) for replacing and removing an installation.
 
-Choose the commands for your current shell:
+</details>
 
-```sh
-# Bash
-export PATH="$HOME/.local/bin:$PATH"
-eval "$(jjump init bash)"
-# Zsh
-export PATH="$HOME/.local/bin:$PATH"
-eval "$(jjump init zsh)"
-# Fish
-set -gx PATH "$HOME/.local/bin" $PATH
-jjump init fish | source
-```
+## Documentation
 
-`jjump` and `j-jump` are equivalent management commands; navigation uses `j` and `ji`. The installer does not edit shell startup files. To keep `j`/`ji` in new terminals, add your shell's init line to its startup file: `~/.bashrc` (Bash), `~/.zshrc` (Zsh) or `~/.config/fish/config.fish` (Fish). Existing `j`/`ji` commands cause initialization to refuse; `jjump init zsh --cmd jump` instead provides `jump`/`jumpi`. Repeated initialization does not duplicate hooks.
+- [Configuration, privacy and recovery guide](docs/CONFIGURATION-AND-HELP.md) (in Chinese)
+- [Install script, releases and platform limits](docs/RELEASE.md)
+- [Archive installation, replacement and removal](packaging/README.md)
+- [Documentation index](docs/README.md)
 
-The first terminal `j` or `ji` opens setup if the selected profile has no configuration. Completing the wizard saves and continues navigation; cancellation discards the draft and retries next time. Local-only setup needs no key. Use `jjump setup` to edit settings later. Help, completion and redirected commands do not open first-use setup.
+## Contributing
 
-A source build needs Rust1.88+ and a C toolchain: `cargo build --locked --release`. SQLite and TLS are embedded. Linux OS credential storage additionally needs a Secret Service session; environment credentials and local navigation do not. [Package installation, replacement and removal](packaging/README.md).
-
-## Navigate
-
-```sh
-j                         # HOME
-j -                       # native shell previous directory
-j ../project              # direct path
-j -- 'directory with spaces'
-j api server              # ordered keywords across visited paths
-j api /                   # descendants of the current logical directory
-ji                        # local numbered picker
-ji '后端服务'              # optional Jev suggestion, then explicit selection
-# Type `j api ` then Tab to select into the editable command line.
-```
-
-The initial visit inventory is empty. Ordinary `cd` builds it at interactive prompt boundaries; repeated prompts, failed cd and subshells do not add observations. Direct paths remain available if optional config/store lookup is broken. `j --help` and `ji --help` leave the directory unchanged.
-
-Ordinary `j` uses a valid local keyword match immediately, with zero model calls. Only a genuine no-match may reach Jev. Queried `ji`/Space-Tab can request Jev when enabled; bare pickers and empty completion stay local. `--offline` explicitly selects local behavior. Semantic suggestions always require selection; cancellation/EOF never chooses the first result.
-
-Local matches rank by directory-name exact match, prefix, substring, then ancestor match. Within each tier, visit weight decays with a seven-day half-life; lifetime counts are separate. Ties use last-visit time and path bytes. This is a fixed initial policy, not proven optimal for every workflow.
-
-The default picker is numbered text, with n/p pages, v N full-path inspection and empty/q cancellation. Explicit `J_JUMP_PICKER=fzf` enables local fuzzy filtering with user-installed fzf; missing/failed fzf reports an error without switching pickers. fzf defaults/commands are ignored and preview/execute extensions are disabled. No extra provider requests occur while filtering.
-
-Space-Tab only edits the line; Enter executes it. Bash requires the terminal's standard device-status reply. A terminal that does not reply leaves the original line unchanged; cancel it and use `ji`. UTF-8 completion is tested on Bash3.2 and5.2; this does not establish every terminal's compatibility.
-
-## Optional Jev and privacy
-
-Defaults are semantic **off**, consent **ask**, disclosure **strict**. There is no request-count setting or cumulative request cap. A credential alone never enables requests.
-
-```sh
-jjump setup                    # hidden key entry and settings
-jjump config show              # readable status
-jjump doctor                   # offline checks and next steps
-jjump preview 'backend'        # exact outgoing JSON; no request
-jjump explain api              # readable local ranking; no request
-jjump explain --json api       # machine-readable ranking
-jjump history prune            # preview confirmed missing visits
-jjump history prune --apply    # remove previewed missing visits
-jjump --offline query --interactive  # explicitly browse local history
-```
-
-Setup keeps a new key in memory until saving to the OS store. `TYPESAFE_API_KEY` takes priority over that entry; keys never belong in command arguments or config. `jjump credential status` does not unlock or display the key. `credential delete --apply` removes only J-Jump's OS entry, not environment values or the provider account key.
-
-Strict disclosure sends query and candidate names; balanced adds limited context/usage buckets; full permits parent/cwd paths. Names and queries can themselves be sensitive. File contents, Git remotes, environment and shell history are never added to requests. Excluded folders are not recorded/searched. `no_send` folders remain locally usable but their directory information is not sent; while inside one, Jev is disabled.
-
-Jev uses one private, lazy adapter and the default system/environment network path. There is no direct fallback or automatic retry. The interactive deadline is10 seconds with a3-second connection cap, excluding time answering consent. During a pending request, Enter opens local choices; it does not select a directory. W continues within the same deadline. Failure, timeout and abstention stop without selecting a path. A sent request may still finish remotely after cancellation.
-
-`jjump adapter status|stop|restart` manages the local adapter; restart is lazy and idle exit is five minutes. It is not a login service. Forced semantic routing is opt-in (`semantic_route=force` or `--force-semantic`), still requires selection and fails closed without a terminal. Laya is research-only. [Full configuration and recovery guide](docs/CONFIGURATION-AND-HELP.md).
-
-## State and recovery
-
-Current formats only: config3, visits4, backup3, cache3. Old/unknown formats are refused unchanged, with no migration or downgrade path. `J_JUMP_HOME` redirects configuration/data/cache files; it **does not isolate the shared OS credential entry**. `--config` overrides `J_JUMP_CONFIG`, then the default configuration path. Only absolute private local state paths are supported.
-
-```sh
-jjump config set tracking off
-jjump config set no_send '["/work/private-client"]'
-jjump history list
-jjump history clear --preview
-jjump history backup /absolute/private-backup/visits.json
-jjump history restore /absolute/private-backup/visits.json  # validation only
-jjump cache clear --preview
-jjump config reset --preview
-jjump config recover           # preview corrupt-config recovery
-```
-
-Destructive commands require `--apply`; restore also requires it to replace visits. Reset preserves tracking/exclusions, visits and credentials while disabling semantic networking. Recovery retains visits/credentials but disables tracking and networking; re-enter exclusions before enabling tracking. Cache clearing preserves visits and credentials. No command erases shell/third-party history or guarantees secure erasure of backups/storage remnants. Human config output hides private roots; `config show --json` includes them and should be reviewed before sharing.
-
-## Development
-
-Use [the documentation index](docs/README.md) for installation, configuration and release tooling. Contributors should read [development instructions](AGENTS.md). Design drafts and internal delivery records are kept outside the repository.
-
-`./scripts/test-product.sh` runs local checks. Target support requires tests against the exact installed package, not compilation alone. Unsigned archives carry source/binary hashes and a dependency/license inventory. The manual-only release workflow, public Homebrew Formula and platform-detecting installer have passed the distribution checks described in [release status](docs/RELEASE.md). Ordinary pushes do not start Actions; future publication remains explicitly gated. Live service quality and genuine user utility require their own acceptance.
+Bug reports and ideas are welcome in [GitHub Issues](https://github.com/mreasonyang/j-jump/issues). Before changing
+code, read the [development instructions](AGENTS.md) and run `./scripts/test-product.sh`.
 
 ## License
 
-J-Jump is distributed under the [MIT License](LICENSE.md). Dependency licenses and notices are included with generated archives.
+[MIT](LICENSE.md). Release archives include the licenses and notices of all dependencies.
