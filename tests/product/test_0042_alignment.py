@@ -148,9 +148,12 @@ class Alignment(unittest.TestCase):
             t.send('q\n'); self.assertEqual(t.wait(),130); self.assertNotIn(b'J130',t.output)
     def test_group_members_remain_separate_local_choices(self):
         self.visit(self.home/'a/shared'); self.visit(self.home/'b/shared'); self.semantic()
+        # Equal visit times keep this grouping test independent of decay ranking.
+        with sqlite3.connect(self.db()) as db:
+            db.execute('UPDATE visits SET last_seen=?, weight=1.0', (int(time.time()),))
         with self.reply('shared'), self.process('query','--interactive','notlexical') as t:
             t.until(b'Empty/q: cancel'); self.assertEqual(t.output.count(b'[Jev]'),2); t.send('2\n'); self.assertEqual(t.wait(),0)
-            self.assertTrue(t.output.rstrip().endswith(os.fsencode(self.home/'b/shared')))
+            self.assertTrue(t.output.rstrip().endswith(os.fsencode(self.home/'b/shared')), t.output[-2000:])
     def test_fzf_suggestion_group_is_first_and_marked(self):
         self.visit(self.home/'high',20); self.visit(self.home/'wanted'); self.semantic()
         fake=self.root/'fake'; fake.mkdir(); capture=self.root/'fzf.json'; program=fake/'fzf'

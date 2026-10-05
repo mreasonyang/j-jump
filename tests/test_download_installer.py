@@ -92,6 +92,22 @@ class DownloadInstallerTests(unittest.TestCase):
         self.env["DOWNLOAD_FILES"] = json.dumps(self.files)
         return archive, sidecar
 
+    def native_archive(self):
+        archive = Path(os.environ["JJ_DOWNLOAD_TEST_ARCHIVE"]).resolve()
+        with tarfile.open(archive) as tar:
+            manifest = json.load(tar.extractfile(next(m for m in tar if m.name.endswith("/manifest.json"))))
+        host = os.uname()
+        arch = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64"}.get(host.machine)
+        suffix = {"Darwin": "apple-darwin", "Linux": "unknown-linux-musl"}.get(host.sysname)
+        self.assertIsNotNone(arch, "unsupported native CPU")
+        self.assertIsNotNone(suffix, "unsupported native OS")
+        self.assertEqual(VERSION, manifest["version"])
+        self.assertEqual(f"{arch}-{suffix}", manifest["target"])
+        self.assertFalse(manifest["dirty_source"])
+        self.env.update(DOWNLOAD_SYSTEM=host.sysname, DOWNLOAD_MACHINE=host.machine)
+        self.register(archive, VERSION, manifest["target"])
+        return archive
+
     def archive(self, target, version=VERSION, change=None, payload=None):
         name = f"j-jump-{version}-{target}"
         binary = payload or f"#!/bin/sh\nprintf '%s\\n' 'jjump {version}'\n".encode()
@@ -384,7 +400,7 @@ class DownloadInstallerTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("curl") and shutil.which("openssl"), "curl and openssl required for local TLS fixture")
     def test_real_curl_https_download_and_http_redirect_refusal(self):
         if os.environ.get("JJ_DOWNLOAD_TEST_ARCHIVE"):
-            self.register(Path(os.environ["JJ_DOWNLOAD_TEST_ARCHIVE"]), VERSION, "aarch64-apple-darwin")
+            self.native_archive()
         cert = self.root / "fixture.crt"
         key = self.root / "fixture.key"
         configuration = self.root / "openssl.cnf"
@@ -443,13 +459,7 @@ class DownloadInstallerTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("JJ_DOWNLOAD_TEST_ARCHIVE"), "opt-in native exact archive")
     def test_native_exact_archive_lifecycle_and_shell_init(self):
-        archive = Path(os.environ["JJ_DOWNLOAD_TEST_ARCHIVE"]).resolve()
-        with tarfile.open(archive) as tar:
-            manifest = json.load(tar.extractfile(next(m for m in tar if m.name.endswith("/manifest.json"))))
-        self.assertEqual(VERSION, manifest["version"])
-        self.assertEqual("aarch64-apple-darwin", manifest["target"])
-        self.assertFalse(manifest["dirty_source"])
-        self.register(archive, VERSION, manifest["target"])
+        archive = self.native_archive()
         env = dict(self.env, J_JUMP_HOME=str(self.home / "isolated-profile"), J_JUMP_SEMANTIC="disabled")
         first = self.run_installer(env=env)
         self.assertEqual(0, first.returncode, first.stderr)

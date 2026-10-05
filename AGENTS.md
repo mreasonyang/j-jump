@@ -16,7 +16,7 @@ Use main only. Preserve unrelated changes. Run `./scripts/install-hooks.sh`, app
 `./scripts/verify-workflow.sh --local --changed-since BASE` before delivery. Commit, push ordinary fast-forward main
 updates and read back the exact remote SHA. Do not rewrite history, force-push, publish, change repository visibility or
 run hosted workflows without explicit user authority. The only configured hosted workflow is guarded manual release;
-automatic triggers and activation remain deferred. Distinguish local tests, exact installed-package acceptance and publication.
+automatic triggers stay disabled; manual execution and publication require their own explicit authority. Distinguish local tests, exact installed-package acceptance and publication.
 
 VERSION is authoritative. Product changes increment one patch by default; process/documentation changes do not advance
 it. Major/minor changes require explicit user authority. New versions need matching Cargo metadata.

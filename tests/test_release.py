@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -229,6 +230,18 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "deferred"):
                 tap_update.update(self.dist, self.dist, "example/repo")
             network.assert_not_called()
+
+    def test_missing_tap_token_stops_preflight_before_publication(self):
+        workflow = json.loads((ROOT / ".github/workflows/release.yml").read_text())
+        step = next(item for item in workflow["jobs"]["preflight"]["steps"] if "run" in item)
+        self.assertEqual("${{ secrets.J_JUMP_DISTRIBUTION_TOKEN != '' }}", step["env"]["TAP_TOKEN_AVAILABLE"])
+        env = dict(os.environ, REQUEST_PUBLISH="true", REQUEST_TAP="true", PUBLISH_ENABLED="true",
+                   TAP_TOKEN_AVAILABLE="false", RELEASE_TAG="v0.0.27")
+        with tempfile.TemporaryDirectory() as empty:
+            result = subprocess.run(["bash", "-c", step["run"]], cwd=empty, env=env, capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("scoped J_JUMP_DISTRIBUTION_TOKEN secret before publication", result.stderr)
+        self.assertNotIn("not a git repository", result.stderr)
 
     def test_private_release_and_existing_assets_cannot_be_published(self):
         identity = {"version": "0.0.27", "source_sha": "a" * 40}

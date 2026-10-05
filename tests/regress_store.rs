@@ -405,10 +405,11 @@ fn every_state_opener_applies_the_leaf_checks() {
     fs::remove_file(&journal).unwrap();
 }
 
-/// AC-008: a hook write must give up inside the supervisor's 75 ms kill window.
+/// AC-008: a hook write must give up inside the supervisor's 250 ms kill window.
 /// A worker SIGKILLed mid-commit silently loses the visit, so the bounded retry
-/// must never start an attempt it cannot finish. Best of two runs tolerates one
-/// scheduling hiccup while still failing if the budget regresses.
+/// must leave time for the supervisor to reap it. The 200 ms limit includes
+/// process startup and leaves 50 ms of headroom. Best of two runs tolerates one
+/// scheduling hiccup while still rejecting the direct-command wait budget.
 #[test]
 fn hook_write_gives_up_inside_the_supervisor_budget() {
     use std::time::{Duration, Instant};
@@ -427,7 +428,7 @@ fn hook_write_gives_up_inside_the_supervisor_budget() {
         best = best.min(elapsed);
     }
     assert!(
-        best < Duration::from_millis(75),
+        best < Duration::from_millis(200),
         "hook write waited {best:?}, past the supervisor kill point"
     );
     assert_eq!(b.rows(), 1, "a failed hook write must not change the store");

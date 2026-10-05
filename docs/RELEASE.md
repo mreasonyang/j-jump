@@ -1,6 +1,6 @@
 # Release and Homebrew preparation
 
-The release tooling is prepared. Hosted execution, binary release publication and remote Homebrew updates are deferred. No public installation URL is promised. The current VERSION is 0.0.30.
+The release tooling is prepared. Manual hosted build acceptance is enabled. Binary release publication and remote Homebrew updates require explicit publication scope. No public installation URL is promised. The current VERSION is 0.0.31.
 
 ## Download installer
 
@@ -28,8 +28,8 @@ separately obtained copy of the root script, the following commands apply **afte
 ```sh
 # Latest stable release (requires a latest redirect to a vX.Y.Z tag)
 sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local"
-# Specific release; v0.0.30 is also accepted
-sh ./install.sh --repository OWNER/REPO --version 0.0.30 --prefix "$HOME/.local"
+# Specific release; v0.0.31 is also accepted
+sh ./install.sh --repository OWNER/REPO --version 0.0.31 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
 sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local" --replace
 sh ./install.sh --help
@@ -48,14 +48,14 @@ does not independently authenticate a publisher. Public anonymous download accep
 
 Offline downloader tests run with `python3 -m unittest discover -s tests -p test_download_installer.py -v`. They include
 a local TLS server with real curl and refusal of an HTTP downgrade. The native lifecycle is opt-in via
-`JJ_DOWNLOAD_TEST_ARCHIVE=/absolute/path/to/archive.tar.gz` and covers only the exact native macOS ARM64 archive supplied.
-When supplied, the real-curl TLS test also downloads and installs that exact archive from the local fixture server.
+`JJ_DOWNLOAD_TEST_ARCHIVE=/absolute/path/to/archive.tar.gz` and validates and exercises the exact native macOS/Linux ARM64/x86-64 archive supplied.
+When supplied, the real-curl TLS test also downloads and installs that exact archive from the local fixture server. Every native Actions build runs this opt-in after packaging.
 
 ## Execution boundary
 
 The only workflow is `.github/workflows/release.yml`. It uses workflow_dispatch only: main/tag pushes, pull requests, repository events and schedules cannot start it. Its JSON representation is valid YAML and lets the Python stdlib validator check duplicate keys and exact event names without a parser dependency.
 
-`J_JUMP_ACTIONS_ENABLED` must equal `true` before build jobs can run. Publication additionally requires `J_JUMP_PUBLISH_ENABLED=true` and explicit publish input; publish and update_homebrew default false. These repository variables are currently inactive. Do not dispatch a run or set them until hosted execution is explicitly authorized. A guard is not a guarantee that a manual dispatch has no billing cost.
+`J_JUMP_ACTIONS_ENABLED` must equal `true` before build jobs can run. Publication additionally requires `J_JUMP_PUBLISH_ENABLED=true` and explicit publish input; publish and update_homebrew default false. Manual builds have been explicitly authorized and the build variable is enabled. Publication remains separately gated; do not enable it or dispatch publication without explicit authority. A guard is not a guarantee that a manual dispatch has no billing cost.
 
 The local validator rejects automatic events, alternate workflows, unpinned actions, missing guards and bypasses around the job dependency chain. The pre-push hook remains main-only and fast-forward. A future automatic tag trigger requires a new approved change to that policy.
 
@@ -66,7 +66,7 @@ Release tools need Python3.9+ and the Rust/C build environment; end users do not
 ```sh
 python3 scripts/release.py check-source
 # For a previously authorized, existing version tag:
-python3 scripts/release.py check-source --tag v0.0.30
+python3 scripts/release.py check-source --tag v0.0.31
 
 # Run on the native target; this does not dispatch or publish anything:
 ./scripts/ci-release.sh aarch64-apple-darwin
@@ -91,7 +91,7 @@ names are retained. Development fixture packaging may accept debug source paths 
 The exact artifact must still pass the installed-product and downloader lifecycle before acceptance. This package
 boundary does not clean Git history, change source visibility, sign an archive or publish it.
 
-The prepared hosted matrix uses macos-15, macos-15-intel, ubuntu-24.04 and ubuntu-24.04-arm. Rust is pinned to1.98.0; Cargo.lock is retained and builds use --locked. Actions are pinned to exact commit SHAs. Hosted matrix results do not exist until a later authorized run completes.
+The prepared hosted matrix uses macos-15, macos-15-intel, ubuntu-24.04 and ubuntu-24.04-arm. Rust is pinned to1.98.0; Cargo.lock is retained and builds use --locked. Actions are pinned to exact commit SHAs. Each claimed platform requires a successful native run for its exact source tag; an in-progress or failed run does not establish support.
 
 ## Bundle and Formula
 
@@ -116,7 +116,7 @@ The public source repository is `mreasonyang/j-jump`. Binary release assets and 
 
 For later authorized execution, the release destination comes from `J_JUMP_RELEASE_REPOSITORY`; otherwise it is the source repository. Publication refuses private destinations. Same-repository publication uses the job's contents-write GITHUB_TOKEN; a different release repository and the tap need a scoped `J_JUMP_DISTRIBUTION_TOKEN` stored through GitHub's secret UI. Do not put token values in chat or tracked files.
 
-The publisher verifies the full source-bound bundle, refuses an existing release, uploads a draft, downloads and rechecks it, publishes, then verifies anonymous archive downloads. Failure stops before tap update. Interrupted draft/publication states require inspection; the tooling never overwrites or deletes existing release assets. Homebrew updates are opt-in in the same run and occur only after that publication step succeeds.
+The publisher verifies the full source-bound bundle, refuses an existing release, uploads a draft, downloads and rechecks it, publishes, then verifies anonymous archive downloads. Failure stops before tap update. Interrupted draft/publication states require inspection; the tooling never overwrites or deletes existing release assets. Homebrew updates are opt-in in the same run and occur only after that publication step succeeds. Preflight refuses a tap update before publication when its scoped credential is missing.
 
 After the public channel is actually published and verified, its intended user entry points are:
 
