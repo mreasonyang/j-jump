@@ -352,6 +352,7 @@ class ShellIntegrationContract(Fixture):
                     self.assertIn(('PREVD:' + str(self.alpha)).encode(), r.stdout)
                     self.assertIn(('NEXTD:' + str(self.beta)).encode(), r.stdout)
 
+    @unittest.skipUnless(os.environ.get('JJ_TEST_BIN'), 'rapid observer timing needs an optimized installed archive')
     def test_rapid_changed_prompts_count_both_directories_in_every_shell(self):
         """iteration0023 expectation: alpha=2 and beta=2 for the documented scenario."""
         for shell, argv in SHELL_ARGV.items():

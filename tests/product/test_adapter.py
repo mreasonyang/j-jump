@@ -63,6 +63,9 @@ class AdapterLifecycle(unittest.TestCase):
         self.process = subprocess.Popen([str(BIN), "adapter-serve"], env=self.env,
                                         cwd=self.home, stdout=subprocess.DEVNULL,
                                         stderr=subprocess.PIPE)
+        self.assert_running()
+
+    def assert_running(self):
         until = time.monotonic() + 2
         while time.monotonic() < until:
             status = self.run_cli("adapter", "status").stdout
@@ -114,7 +117,7 @@ class AdapterLifecycle(unittest.TestCase):
         self.assertEqual(reply["id"], request_id)
         self.assertEqual(reply["status"], "fingerprint")
         self.assertEqual(reply["body"], "")
-        self.assertEqual(self.run_cli("adapter", "status").stdout, b"adapter: running\n")
+        self.assert_running()
 
     @staticmethod
     def recv_exact(client, count):
@@ -141,7 +144,7 @@ class AdapterLifecycle(unittest.TestCase):
         self.env["HTTPS_PROXY"] = "http://127.0.0.1:19091"
         self.assertEqual(self.run_cli("adapter", "status").stdout, b"adapter: stopped\n")
         self.env.pop("HTTPS_PROXY")
-        self.assertEqual(self.run_cli("adapter", "status").stdout, b"adapter: running\n")
+        self.assert_running()
 
 
 if __name__ == "__main__":

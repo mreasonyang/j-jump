@@ -11,6 +11,17 @@ else
 fi
 ./scripts/install-hooks.sh
 ./scripts/test-product.sh
+# Capture the native harness before musl-specific compiler variables are set.
+performance_test=$(cargo test --locked --test regress_cli --no-run --message-format=json | python3 -c '
+import json, sys
+artifacts = [json.loads(line) for line in sys.stdin]
+paths = {item["executable"] for item in artifacts
+         if item.get("reason") == "compiler-artifact" and item.get("target", {}).get("name") == "regress_cli"
+         and item.get("executable")}
+if len(paths) != 1:
+    raise SystemExit("expected one native query regression harness")
+print(paths.pop())
+')
 case "$target" in
     aarch64-unknown-linux-musl)
         export CC=musl-gcc HOST_CC=cc
@@ -45,6 +56,8 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 tar -xzf "dist/j-jump-$version-$target.tar.gz" -C "$scratch"
 "$package/install.sh" --prefix "$prefix"
+JJ_TEST_BIN="$prefix/bin/jjump" "$performance_test" \
+    no_match_query_cost_does_not_scale_with_inventory --ignored --exact --test-threads=1
 JJ_TEST_BIN="$prefix/bin/jjump" python3 -m unittest discover -s tests/product -v
 JJ_DOWNLOAD_TEST_ARCHIVE="$PWD/dist/j-jump-$version-$target.tar.gz" \
     python3 -m unittest discover -s tests -p test_download_installer.py -v

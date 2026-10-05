@@ -1,6 +1,6 @@
 # Release and Homebrew preparation
 
-The release tooling is prepared. Manual hosted build acceptance is enabled. Binary release publication and remote Homebrew updates require explicit publication scope. No public installation URL is promised. The current VERSION is 0.0.31.
+The release tooling is prepared. Manual hosted build acceptance is enabled. Binary release publication and remote Homebrew updates require explicit publication scope. No public installation URL is promised. The current VERSION is 0.0.32.
 
 ## Download installer
 
@@ -28,8 +28,8 @@ separately obtained copy of the root script, the following commands apply **afte
 ```sh
 # Latest stable release (requires a latest redirect to a vX.Y.Z tag)
 sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local"
-# Specific release; v0.0.31 is also accepted
-sh ./install.sh --repository OWNER/REPO --version 0.0.31 --prefix "$HOME/.local"
+# Specific release; v0.0.32 is also accepted
+sh ./install.sh --repository OWNER/REPO --version 0.0.32 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
 sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local" --replace
 sh ./install.sh --help
@@ -66,13 +66,13 @@ Release tools need Python3.9+ and the Rust/C build environment; end users do not
 ```sh
 python3 scripts/release.py check-source
 # For a previously authorized, existing version tag:
-python3 scripts/release.py check-source --tag v0.0.31
+python3 scripts/release.py check-source --tag v0.0.32
 
 # Run on the native target; this does not dispatch or publish anything:
 ./scripts/ci-release.sh aarch64-apple-darwin
 ```
 
-`ci-release.sh` runs offline source tests, builds the fixture binary used by credential tests, builds the release binary, packages it with clean-source and architecture checks, installs into a temporary prefix, runs the product suite with JJ_TEST_BIN, then replaces/uninstalls the temporary installation. macOS release builds use deployment target15.0; the Formula requires Sequoia or newer. Compatibility with older releases is not claimed. Linux builds target musl on native ARM64/x86-64 runners and reject a dynamic interpreter in the archive executable.
+`ci-release.sh` runs offline source tests, builds the fixture binary used by credential tests, builds the release binary, packages it with clean-source and architecture checks, installs into a temporary prefix, runs the product suite with JJ_TEST_BIN, runs the no-match performance regression against the exact optimized installed binary, then replaces/uninstalls the temporary installation. macOS release builds use deployment target15.0; the Formula requires Sequoia or newer. Compatibility with older releases is not claimed. Linux builds target musl on native ARM64/x86-64 runners and reject a dynamic interpreter in the archive executable.
 
 ### Release package disclosure boundary
 

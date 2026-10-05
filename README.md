@@ -2,7 +2,7 @@
 
 Independent Rust directory navigation for Bash, Zsh and Fish. Local navigation needs no zoxide, fzf, Python, network or background service. The interface is CLI and optional terminal pickers only.
 
-Current source: **0.0.31**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Public release archives are not yet available; see [release tooling and platform limits](docs/RELEASE.md).
+Current source: **0.0.32**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Public release archives are not yet available; see [release tooling and platform limits](docs/RELEASE.md).
 
 ## Install and activate
 
@@ -114,7 +114,7 @@ Destructive commands require `--apply`; restore also requires it to replace visi
 
 Use [the documentation index](docs/README.md) for installation, configuration and release tooling. Contributors should read [development instructions](AGENTS.md). Design drafts and internal delivery records are kept outside the repository.
 
-`./scripts/test-product.sh` runs local checks. Target support requires tests against the exact installed package, not compilation alone. Unsigned archives carry source/binary hashes and a dependency/license inventory. A guarded manual-only release workflow, Homebrew Formula generator and platform-detecting download installer are prepared; hosted execution and public distribution are deferred. Ordinary pushes do not start Actions. See [release preparation](docs/RELEASE.md). Live service quality, genuine user utility and the full platform matrix remain open gates.
+`./scripts/test-product.sh` runs local checks. Target support requires tests against the exact installed package, not compilation alone. Unsigned archives carry source/binary hashes and a dependency/license inventory. A guarded manual-only release workflow, Homebrew Formula generator and platform-detecting download installer are prepared; manual hosted acceptance is enabled and public distribution remains separately gated. Ordinary pushes do not start Actions. See [release preparation](docs/RELEASE.md). Live service quality, genuine user utility and the full platform matrix remain open gates.
 
 ## License
 

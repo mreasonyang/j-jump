@@ -892,15 +892,17 @@ fn symlinked_state_ancestor_operates_normally() {
 /// whole inventory, so its cost stays close to an explicit-path query as the
 /// inventory grows.
 #[test]
+#[ignore = "native optimized package timing; ci-release.sh runs the exact installed binary"]
 fn no_match_query_cost_does_not_scale_with_inventory() {
     let f = Fixture::new();
     let work = f.home.join("work");
     fs::create_dir_all(&work).unwrap();
-    let best = |args: &[&str]| {
+    let best = |args: &[&str], expected_code: i32| {
         (0..5)
             .map(|_| {
                 let started = Instant::now();
-                let _ = f.run(args);
+                let out = f.run(args);
+                assert_eq!(out.status.code(), Some(expected_code), "{out:?}");
                 started.elapsed().as_secs_f64()
             })
             .fold(f64::MAX, f64::min)
@@ -918,18 +920,18 @@ fn no_match_query_cost_does_not_scale_with_inventory() {
         // load-robust baseline for the unavoidable store read. The difference
         // is what discovery adds on top of it.
         (
-            best(&["query", "zzz-no-such-directory"]),
-            best(&["doctor", "--json"]),
-            best(&["query", "--", work.to_str().unwrap()]),
+            best(&["query", "zzz-no-such-directory"], 3),
+            best(&["doctor", "--json"], 0),
+            best(&["query", "--", work.to_str().unwrap()], 0),
         )
     };
     let (small, small_doctor, _small_explicit) = measured(1000);
     let (large, large_doctor, large_explicit) = measured(10_000);
 
-    // Measured on a debug build: discovery costs ~0.5 ms over `doctor` at 1000
-    // and ~4 ms at 10000. Re-instating an inventory-wide canonicalise (the
-    // 0.0.14 defect) adds ~150 us/row here, i.e. ~50 ms at 10000, which these
-    // bounds must reject.
+    // Keep these bounds on the optimized native archive, after installation.
+    // Debug Unicode matching costs vary greatly between hosted CPUs; they do
+    // not establish shipping performance. Inventory-wide canonicalization
+    // (the 0.0.14 defect) must still be rejected by the unchanged bounds.
     assert!(
         small < small_doctor + 0.015,
         "no-match {small:.3}s vs store-read {small_doctor:.3}s at 1000"
