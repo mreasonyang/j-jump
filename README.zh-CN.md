@@ -45,6 +45,10 @@ Choose a directory
 
 ## 快速开始
 
+**源码版本 0.0.34 新增自动接入 Shell。** 安装脚本默认完成接入，已安装的新版也可运行 `jjump shell install`。
+公开下载和 Homebrew 在新版发布前仍提供 0.0.33，请按下面步骤手动接入。
+自动接入、备份和撤销见[安装说明](packaging/README.md)（英文）。
+
 ### 1. 安装
 
 **Homebrew**：

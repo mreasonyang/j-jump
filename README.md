@@ -47,6 +47,10 @@ letters of its name and, with the optional Jev semantic model, finds it by what 
 - **Small and native.** One Rust binary for Bash, Zsh and Fish on macOS and Linux. No runtime or plugin manager is
   needed, and no background service runs for local navigation.
 
+**Source version 0.0.34 adds automatic shell setup.** Its install script connects your shell by default, and
+`jjump shell install` connects an installed binary. Public downloads and Homebrew still provide 0.0.33 until the new
+version is published; use the manual steps below for that release. See [automatic integration and removal](packaging/README.md).
+
 ## Quick start
 
 ### 1. Install

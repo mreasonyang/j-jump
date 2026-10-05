@@ -6,7 +6,7 @@ class PackageInstaller(unittest.TestCase):
   with tempfile.TemporaryDirectory() as t:
    root=pathlib.Path(t).resolve();package=root/'package';package.mkdir();shutil.copy2(BIN,package/'jjump');shutil.copy2(ROOT/'packaging/install.sh',package/'install.sh');(package/'binary.sha256').write_text(hashlib.sha256(BIN.read_bytes()).hexdigest()+'\n');prefix=root/'prefix';script=package/'install.sh'
    def run(*args,code=0):
-    r=subprocess.run([str(script),'--prefix',str(prefix),*args],capture_output=True,timeout=5,env=dict(os.environ,HOME=str(root),J_JUMP_HOME=str(root/"isolated-state")));self.assertEqual(r.returncode,code,r.stderr);return r
+    r=subprocess.run([str(script),'--prefix',str(prefix),'--no-shell',*args],capture_output=True,timeout=5,env=dict(os.environ,HOME=str(root),J_JUMP_HOME=str(root/"isolated-state")));self.assertEqual(r.returncode,code,r.stderr);return r
    run();self.assertEqual(subprocess.check_output([str(prefix/'bin/jjump'),'--version']).strip(),('jjump '+(ROOT/'VERSION').read_text().strip()).encode());run('--replace');self.assertFalse((prefix/'bin/jjump.previous').exists());run('--uninstall');self.assertFalse((prefix/'bin/jjump').exists());self.assertFalse((root/'.zshrc').exists())
    run();(prefix/'bin/jjump').write_bytes(b'user-modified');run('--replace',code=2);self.assertEqual((prefix/'bin/jjump').read_bytes(),b'user-modified');run('--uninstall');self.assertFalse((prefix/'bin/jjump').exists());self.assertFalse((prefix/'share/j-jump-install/installed.sha256').exists());self.assertFalse((root/'.zshrc').exists())
  def test_bad_package_checksum_refused(self):

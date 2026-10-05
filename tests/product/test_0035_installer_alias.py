@@ -31,7 +31,7 @@ class AliasInstaller(unittest.TestCase):
         self.unrelated.write_text('unrelated command\n')
 
     def install(self, *args, code=0, env=None):
-        result = subprocess.run([str(self.package / 'install.sh'), '--prefix', str(self.prefix), *args],
+        result = subprocess.run([str(self.package / 'install.sh'), '--prefix', str(self.prefix), '--no-shell', *args],
                                 capture_output=True, timeout=10, env=dict(env or os.environ, HOME=str(self.root), J_JUMP_HOME=str(self.root / "isolated-state")))
         self.assertEqual(result.returncode, code, result.stderr)
         self.assertEqual(self.unrelated.read_text(), 'unrelated command\n')

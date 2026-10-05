@@ -7,15 +7,17 @@ export LC_ALL
 usage() {
     cat <<'EOF'
 Usage: sh install.sh [--version X.Y.Z] [--repository OWNER/REPO]
-                     [--prefix ABSOLUTE_DIR] [--replace]
+                     [--prefix ABSOLUTE_DIR] [--replace] [--no-shell] [--shell bash|zsh|fish]
   --version     install this version (optional v prefix); default: latest stable
   --repository  public GitHub release repository; default: mreasonyang/j-jump
   --prefix      installation prefix; default: $HOME/.local
   --replace     replace an unchanged installation owned by the archive installer
+  --no-shell    skip automatic shell integration (requires release 0.0.34+)
+  --shell       override the login shell (bash, zsh or fish; requires 0.0.34+)
   --help        show this help
 
 Requires macOS 15+ or Linux, x86-64 or ARM64, curl, tar and SHA256 tools.
-No sudo or shell startup-file edits. Public release availability is required.
+No sudo. Release 0.0.34+ also connects your shell by default. Public release availability is required.
 EOF
 }
 fail() { printf '%s\n' "j-jump installer: $*" >&2; exit 2; }
@@ -28,6 +30,8 @@ version=''
 repository=mreasonyang/j-jump
 prefix=${HOME:+$HOME/.local}
 replace=false
+no_shell=false
+shell_name=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --version|--repository|--prefix)
@@ -39,6 +43,11 @@ while [ "$#" -gt 0 ]; do
             esac
             shift 2;;
         --replace) replace=true; shift;;
+        --no-shell) no_shell=true; shift;;
+        --shell)
+            [ "$#" -ge 2 ] || fail 'Missing value for --shell; use --help.'
+            case "$2" in bash|zsh|fish) shell_name=$2;; *) fail 'Shell must be bash, zsh or fish.';; esac
+            shift 2;;
         --help|-h) usage; exit 0;;
         *) fail "Unknown option: $1; use --help.";;
     esac
@@ -108,6 +117,10 @@ if [ -z "$version" ]; then
         *) fail "Latest release did not resolve to a version tag in $repository; use --version X.Y.Z.";;
     esac
     valid_version "$version" || fail 'Latest release tag must be vX.Y.Z; use --version X.Y.Z.'
+fi
+if $no_shell || [ -n "$shell_name" ]; then
+    printf '%s\n' "$version" | awk -F. '{ exit !($1 > 0 || $2 > 0 || $3 >= 34) }' ||
+        fail "Shell configuration options require release 0.0.34 or newer; selected release is $version."
 fi
 
 umask 077
@@ -184,4 +197,6 @@ done
 printf '%s\n' "Verified SHA256: $actual"
 set -- --prefix "$prefix"
 if $replace; then set -- "$@" --replace; fi
+if $no_shell; then set -- "$@" --no-shell; fi
+if [ -n "$shell_name" ]; then set -- "$@" --shell "$shell_name"; fi
 sh "$package/install.sh" "$@"

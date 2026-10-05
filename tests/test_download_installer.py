@@ -231,10 +231,26 @@ class DownloadInstallerTests(unittest.TestCase):
         self.assertIn("Usage:", result.stdout)
         self.assertEqual([], self.calls())
 
+    def test_shell_flags_are_forwarded_to_the_archive_installer(self):
+        payload = b'#!/bin/sh\nprintf "%s\\n" "$@"\n'
+        self.archive("aarch64-apple-darwin", payload=payload)
+        result = self.run_installer("--no-shell", "--shell", "fish")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Shell configuration skipped (--no-shell)", result.stdout)
+        result = self.run_installer("--shell", "fish")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("shell\ninstall\n--bin-dir\n", result.stdout)
+        self.assertIn("--shell\nfish\n", result.stdout)
+
+    def test_shell_options_refuse_older_releases_before_download(self):
+        result = self.run_installer("--version", "0.0.33", "--no-shell")
+        self.refused(result, "require release 0.0.34 or newer")
+        self.assertEqual([], self.calls())
+
     def test_invalid_arguments_before_network(self):
         for args in (("--version", "1.2"), ("--version", "01.2.3"), ("--version", "1.2.3;touch marker"),
                      ("--repository", "example/../evil"), ("--repository", "https://example/repo"),
-                     ("--prefix", "relative"), ("--unknown",), ("--version",)):
+                     ("--prefix", "relative"), ("--unknown",), ("--version",), ("--shell",), ("--shell", "nu")):
             with self.subTest(args=args):
                 result = self.run_installer(*args)
                 self.assertNotEqual(0, result.returncode)
@@ -460,7 +476,9 @@ class DownloadInstallerTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("JJ_DOWNLOAD_TEST_ARCHIVE"), "opt-in native exact archive")
     def test_native_exact_archive_lifecycle_and_shell_init(self):
         archive = self.native_archive()
-        env = dict(self.env, J_JUMP_HOME=str(self.home / "isolated-profile"), J_JUMP_SEMANTIC="disabled")
+        env = dict(self.env, J_JUMP_HOME=str(self.home / "isolated-profile"), J_JUMP_SEMANTIC="disabled", SHELL="/bin/bash")
+        for key in ("ZDOTDIR", "XDG_CONFIG_HOME"):
+            env.pop(key, None)
         first = self.run_installer(env=env)
         self.assertEqual(0, first.returncode, first.stderr)
         binary = self.prefix / "bin/jjump"

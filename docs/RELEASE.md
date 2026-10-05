@@ -57,8 +57,8 @@ sh ./j-jump-install.sh --help
 
 Both `jjump` and `j-jump` are installed. The default prefix is `$HOME/.local`. The bundled installer refuses foreign or
 modified executables, and an unchanged repeat succeeds without rewriting them. No sudo, Rust/Python installation,
-credentials, shellrc edits or user-data changes occur. Add the prefix's bin directory to PATH and activate Bash, Zsh or
-Fish as described in the [main README](../README.md#install-and-activate). Removal uses `install.sh --uninstall` inside an
+credentials or product-data changes occur. Published release 0.0.33 keeps shell activation manual; add the prefix's bin
+directory to PATH and activate Bash, Zsh or Fish as described in the [main README](../README.md). Removal uses `install.sh --uninstall` inside an
 extracted archive, as described in the [archive instructions](../packaging/README.md).
 
 Downloads use HTTPS-only redirects with TLS verification, a 10-second connection timeout, a 120-second request timeout,
@@ -69,6 +69,23 @@ does not independently authenticate a publisher. Anonymous downloads of all four
 Offline downloader tests run with `python3 -m unittest discover -s tests -p test_download_installer.py -v`. They include
 a local TLS server with real curl and refusal of an HTTP downgrade. The native lifecycle is opt-in via
 `JJ_DOWNLOAD_TEST_ARCHIVE=/absolute/path/to/archive.tar.gz` and validates and exercises the exact native macOS/Linux ARM64/x86-64 archive supplied.
+
+### Automatic shell setup in source 0.0.34
+
+Source version 0.0.34 adds `jjump shell install` and `jjump shell uninstall`. Its archive installer connects the login
+shell and PATH by default; `--no-shell` skips shell changes and `--shell bash|zsh|fish` overrides shell detection.
+The download entry forwards these options; they require an archive of version 0.0.34 or newer. Existing public 0.0.33
+downloads retain their existing behavior. See [automatic connection, backup and removal](../packaging/README.md).
+
+The generated Homebrew Formula provides `jjump shell install` in its installation instructions. It does not modify
+user startup files from Homebrew's installation hooks. With 0.0.34+ published and installed, the complete command is:
+
+```sh
+brew install mreasonyang/taps/j-jump && jjump shell install
+```
+
+These source changes do not publish a release or update the public tap. Public installation remains on 0.0.33 until
+a new release and matching tap Formula are explicitly published.
 When supplied, the real-curl TLS test also downloads and installs that exact archive from the local fixture server. Every native Actions build runs this opt-in after packaging.
 
 ## Execution boundary

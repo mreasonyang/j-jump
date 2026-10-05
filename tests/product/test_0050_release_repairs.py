@@ -39,7 +39,7 @@ class InstallerDirectoryBoundary(unittest.TestCase):
         (self.root / "state/keep").write_bytes(b"user state fixture")
 
     def run_installer(self, prefix, *args, env=None):
-        return subprocess.run([str(self.package / "install.sh"), "--prefix", str(prefix), *args],
+        return subprocess.run([str(self.package / "install.sh"), "--prefix", str(prefix), '--no-shell', *args],
                               env=env or self.env, capture_output=True, text=True, timeout=10)
 
     def linked_installation(self, name, kind, ownership):

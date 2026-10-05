@@ -20,9 +20,11 @@ set -eu
 
 usage() {
 	printf '%s\n' \
-		'Usage: ./install.sh [--prefix ABSOLUTE_DIR] [--replace|--uninstall]' \
+		'Usage: ./install.sh [--prefix ABSOLUTE_DIR] [--replace|--uninstall] [--no-shell] [--shell bash|zsh|fish]' \
 		'  --replace    replace an unchanged owned installation; only the current executable is retained' \
-		'  --uninstall  remove an owned installation; user config, visits, cache, credentials and shellrc are retained' >&2
+		'  --uninstall  remove an owned installation; user config, visits, cache, credentials and shellrc are retained' \
+		'  --no-shell   install binaries without changing shell startup files' \
+		'  --shell      connect this shell instead of the login shell from SHELL' >&2
 }
 
 # $1 is the offending path. Used for anything that is not the plain file this
@@ -75,11 +77,18 @@ check_directory_links() {
 prefix=${HOME}/.local
 replace=false
 uninstall=false
+configure_shell=true
+shell_name=
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--prefix) [ "$#" -ge 2 ] || { usage; exit 2; }; prefix=$2; shift 2;;
 		--replace) replace=true; shift;;
 		--uninstall) uninstall=true; shift;;
+		--no-shell) configure_shell=false; shift;;
+		--shell)
+			[ "$#" -ge 2 ] || { usage; exit 2; }
+			case "$2" in bash|zsh|fish) shell_name=$2;; *) usage; exit 2;; esac
+			shift 2;;
 		*) usage; exit 2;;
 	esac
 done
@@ -90,6 +99,21 @@ target=$prefix/bin/jjump
 alias_target=$prefix/bin/j-jump
 receipt=$prefix/share/j-jump-install/installed.sha256
 marker=$prefix/share/j-jump-install/.install-in-progress
+
+connect_shell() {
+	if ! $configure_shell; then
+		printf '%s\n' 'Shell configuration skipped (--no-shell). Run jjump shell install when ready.'
+		return
+	fi
+	set -- shell install --bin-dir "$prefix/bin"
+	if [ -n "$shell_name" ]; then set -- "$@" --shell "$shell_name"; fi
+	if ! "$target" "$@"; then
+		printf '%s\n' 'The binary is installed, but shell integration needs attention.' \
+			'Run shell install with the installed executable at:' "$target" \
+			'Options: --shell bash|zsh|fish, optionally --cmd jump or --rc /absolute/startup-file.' >&2
+		return 2
+	fi
+}
 hash() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
 
 check_directory_links
@@ -182,7 +206,8 @@ if [ "$(hash "$root/jjump")" != "$(cat -- "$root/binary.sha256")" ]; then
 fi
 
 if $target_present && $owned && $receipt_valid && ! $marker_present && $alias_present && [ "$(hash "$target")" = "$receipt_sha" ] && [ "$(hash "$root/jjump")" = "$receipt_sha" ]; then
-    printf '%s\n' 'Same archive already installed; nothing changed.'
+    printf '%s\n' 'Same archive already installed; binaries are unchanged.'
+    connect_shell
     exit 0
 fi
 if $target_present; then
@@ -230,4 +255,5 @@ mv -- "$draft" "$target"
 mv -f -- "$alias_draft" "$alias_target"
 mv -- "$receipt_draft" "$receipt"
 rm -f -- "$marker" 2>/dev/null || true
-printf '%s\n' "Installed $target and equivalent alias $alias_target" 'Add the prefix bin directory to PATH and activate your shell. First j/ji opens configuration automatically.' 'Shell integration: eval "$(jjump init zsh)" (Bash: use bash; Fish: jjump init fish | source).' 'shellrc is unchanged. Both names use the same current executable.'
+printf '%s\n' "Installed $target and equivalent alias $alias_target"
+connect_shell

@@ -10,7 +10,22 @@ Choose an archive matching your OS/architecture. In the download directory, veri
 ./install.sh --prefix "$HOME/.local"
 ```
 
-Put the prefix's bin directory on PATH and activate only your current shell:
+From version 0.0.34, the archive installer connects your login shell automatically, including the binary directory on
+PATH. Open a new terminal to use `j` and `ji`. It identifies the shell from `SHELL`; use `--shell bash`, `--shell zsh` or
+`--shell fish` to override it. To install only the binaries, pass `--no-shell`.
+
+With an installed 0.0.34+ binary, including one installed through Homebrew, you can connect or undo the integration:
+
+```sh
+jjump shell install
+jjump shell install --shell zsh --cmd jump
+jjump shell install --shell zsh --rc /absolute/startup-file
+jjump shell uninstall
+```
+
+The public release is currently 0.0.33; these automatic commands are available in source version 0.0.34 and require a
+new release to reach the public download and Homebrew channels. For 0.0.33 or manual integration, add the binary
+directory to PATH and activate your shell:
 
 ```sh
 # Bash
@@ -24,7 +39,21 @@ set -gx PATH "$HOME/.local/bin" $PATH
 jjump init fish | source
 ```
 
-The installer never edits shellrc. Initialization refuses existing j/ji conflicts; `--cmd jump` generates jump/jumpi instead. Add the matching init line to your startup file yourself if desired.
+Automatic integration backs up existing files and adds a marked block without replacing your other settings. Repeating
+the same installation leaves the startup files unchanged. Existing manual `jjump init` lines are preserved. Known j/ji
+aliases, functions or executable conflicts require another prefix such as `--cmd jump`; initialization also protects
+commands defined dynamically by other startup scripts. Startup files are never executed by the installer.
+
+Zsh uses `$ZDOTDIR/.zshrc` or `~/.zshrc`; Fish uses `$XDG_CONFIG_HOME/fish/config.fish` or
+`~/.config/fish/config.fish`. Bash uses `~/.bashrc` and connects the first existing login profile (`.bash_profile`,
+`.bash_login`, `.profile`), creating `.bash_profile` only if none exists. Use `--rc` for a custom startup file; that
+updates only the selected file. Dotfile symlinks are retained while the real file is backed up and edited. Backups
+appear beside the edited file as `FILE.j-jump-backup-*`, with access limited to the current user. Edited managed blocks
+are preserved and reported for manual inspection. `jjump init` itself still only prints code and never edits files.
+
+If shell integration fails, the binary remains installed and the installer returns an error with a remedy. Fix the
+reported shell, command prefix or startup-file issue and run `jjump shell install` again. Shell integration needs no
+network, product profile or credentials and does not enable Jev.
 
 First terminal j/ji opens setup when configuration is absent. Completing first setup saves and resumes navigation; cancellation saves nothing and retries later. Reopen `jjump setup` for changes. Local-only mode needs no key. Ordinary cd builds visits at prompt boundaries; j goes HOME, j - uses native previous and j words ranks visited directories. Bare ji opens a local picker. Space-Tab only edits the command line. Bash needs a terminal device-status reply for insertion; an unsupported terminal leaves the line unchanged.
 
@@ -42,7 +71,11 @@ Only the lazy private adapter sends Jev requests. It follows system/environment 
 
 From the new extracted archive, run `./install.sh --prefix "$HOME/.local" --replace`. Replacement requires receipt-owned unchanged commands. Foreign/retargeted aliases or unowned executables are refused; a missing managed alias is repairable. An interrupted-install marker supports recovery across atomic renames. Only the current binary is retained, with j-jump as its equivalent entry; jj is not installed.
 
-Run `./install.sh --prefix "$HOME/.local" --uninstall` to remove owned commands, receipt and marker. Configuration, visits, credentials, backups and shellrc remain. Remove your init line yourself and start a fresh shell.
+Run `jjump shell uninstall` before removing the binary to remove unchanged managed blocks, then run
+`./install.sh --prefix "$HOME/.local" --uninstall` to remove owned commands, receipt and marker. Configuration, visits,
+credentials, backups and your other shell settings remain. Use the same `--shell` and `--rc` used for connection if
+needed. Manual init lines remain yours to remove. If the binary is removed first, its managed startup block checks for
+the executable and stays inactive. Start a fresh shell afterwards.
 
 Only current config3/visits4/backup3/cache3 are accepted; old/unknown formats remain unchanged and are rejected. No migration or downgrade binary is supplied. State clear/reset/recover/restore commands preview unless explicitly applied, except backup creation. Config reset retains tracking/exclusion policy and data while disabling semantic networking. Corrupt-config recovery also disables tracking; restore exclusions before re-enabling it. No action erases shell/third-party history or guarantees secure erasure of storage remnants.
 

@@ -1,12 +1,29 @@
 # J-Jump 配置、帮助与恢复
 
-这是与当前0.0.30源码核对的用户指南；版本以根目录 [VERSION](../VERSION) 为准。公开安装渠道和平台限制见 [发布说明](RELEASE.md)。产品仅提供 Bash/Zsh/Fish CLI 和终端选择器，无 GUI、zoxide 前置依赖或自动语义跳转。
+这是与当前源码核对的用户指南；版本以根目录 [VERSION](../VERSION) 为准。公开安装渠道和平台限制见 [发布说明](RELEASE.md)。产品仅提供 Bash/Zsh/Fish CLI 和终端选择器，无 GUI、zoxide 前置依赖或自动语义跳转。
 
 `jjump` 与 `j-jump` 完全等效，共用配置、历史和凭证；本文与程序提示默认使用 `jjump`。
 
 ## 接入与发现
 
-从私有归档安装后，把 binary 所在目录加入 PATH，再选择当前 Shell 对应命令：
+源码版本 0.0.34 新增自动接入；公开下载和 Homebrew 目前仍是 0.0.33，需要发布新版后才提供此功能。
+0.0.34 的归档安装脚本默认根据 `SHELL` 接入 Bash、Zsh 或 Fish，并补齐 PATH。完成后打开新终端即可使用。
+使用 `--no-shell` 可跳过配置，`--shell bash|zsh|fish` 可指定 Shell。对于已经安装的 0.0.34，包括新版 brew 安装，可运行：
+
+```sh
+jjump shell install
+jjump shell install --shell zsh --cmd jump
+jjump shell install --shell zsh --rc /absolute/startup-file
+jjump shell uninstall
+```
+
+接入前会备份已有启动文件，只添加带标记的配置块；重复执行不会重复写入。已有手动接入会保留。
+Zsh 尊重 `ZDOTDIR`，Fish 尊重 `XDG_CONFIG_HOME`；Bash 同时处理 `.bashrc` 和登录配置文件。
+自定义 `--rc` 只修改指定文件。撤销只删除未被改动的自动配置块，其他设置和备份保留。
+发现已有命令冲突时，可用 `--cmd jump`；复杂启动配置中的动态冲突仍由 Shell 初始化时检查。
+自动接入不会执行已有启动脚本，也不会创建产品配置、读取凭证或开启 Jev。
+
+对于公开版 0.0.33 或需要手动接入的情况，把 binary 所在目录加入 PATH，再选择当前 Shell 对应命令：
 
 ```sh
 # Zsh

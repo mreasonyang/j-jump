@@ -1,4 +1,4 @@
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use j_jump::{
     Error, Result, adapter,
     config::{Config, Paths},
@@ -23,7 +23,7 @@ mod wait_ui;
     bin_name = "jjump",
     version,
     about = "Private local directory navigation. Optional Jev suggestions always require selection.",
-    after_help = "First j/ji opens setup; edit later: jjump setup\nZsh: eval \"$(jjump init zsh)\"\nBash: eval \"$(jjump init bash)\"\nFish: jjump init fish | source\nUse j QUERY, j -- PATH, j -, ji QUERY.\nNo key/network is required for local navigation. Exit codes: 2 input, 3 no match, 4 selection required, 5 provider, 6 path, 7 state, 130 cancelled."
+    after_help = "Connect your shell automatically: jjump shell install\nFirst j/ji opens setup; edit later: jjump setup\nZsh: eval \"$(jjump init zsh)\"\nBash: eval \"$(jjump init bash)\"\nFish: jjump init fish | source\nUse j QUERY, j -- PATH, j -, ji QUERY.\nNo key/network is required for local navigation. Exit codes: 2 input, 3 no match, 4 selection required, 5 provider, 6 path, 7 state, 130 cancelled."
 )]
 struct Cli {
     #[arg(long, global = true, help = "Use an absolute configuration file path")]
@@ -45,6 +45,11 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Install or remove automatic shell integration (no network)
+    Shell {
+        #[command(subcommand)]
+        action: ShellCommand,
+    },
     /// Print the shell integration code for your startup file
     Init {
         shell: String,
@@ -130,6 +135,28 @@ enum Command {
     },
     #[command(hide = true)]
     AdapterServe,
+}
+#[derive(Subcommand)]
+enum ShellCommand {
+    /// Back up and connect your shell; open a new terminal afterwards
+    Install(ShellOptions),
+    /// Remove unchanged J-Jump managed blocks; preserve your other settings
+    Uninstall(ShellOptions),
+}
+#[derive(Args)]
+struct ShellOptions {
+    /// Shell to connect (default: your login shell from SHELL)
+    #[arg(long, value_parser = ["bash", "zsh", "fish"])]
+    shell: Option<String>,
+    /// Use this absolute startup-file path instead of the default
+    #[arg(long)]
+    rc: Option<PathBuf>,
+    /// Navigation command prefix; install uses j by default
+    #[arg(long, default_value = "j")]
+    cmd: String,
+    /// Stable binary directory, used by the archive installer
+    #[arg(long, hide = true)]
+    bin_dir: Option<PathBuf>,
 }
 #[derive(Subcommand)]
 enum AdapterCommand {
@@ -1291,6 +1318,19 @@ fn run() -> Result<()> {
         print!("{}", j_jump::shell::init(shell, cmd)?);
         return Ok(());
     }
+    if let Some(Command::Shell { ref action }) = cli.command {
+        let (options, uninstall) = match action {
+            ShellCommand::Install(options) => (options, false),
+            ShellCommand::Uninstall(options) => (options, true),
+        };
+        return j_jump::shell_install::run(
+            options.shell.as_deref(),
+            options.rc.as_deref(),
+            &options.cmd,
+            options.bin_dir.as_deref(),
+            uninstall,
+        );
+    }
     if let Some(Command::Observe { ref path }) = cli.command {
         return observe(path, cli.config.as_deref());
     }
@@ -1303,7 +1343,8 @@ fn run() -> Result<()> {
     }
     let offline = cli.offline || offline_env();
     match cli.command {
-        Some(Command::Init { .. })
+        Some(Command::Shell { .. })
+        | Some(Command::Init { .. })
         | Some(Command::Observe { .. })
         | Some(Command::ObserveSupervise { .. })
         | Some(Command::AdapterServe) => unreachable!(),

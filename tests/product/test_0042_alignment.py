@@ -96,7 +96,7 @@ class Alignment(unittest.TestCase):
     def package(self):
         p=self.root/'package'; p.mkdir(); shutil.copy2(BIN,p/'jjump'); shutil.copy2(os.environ.get('JJ_TEST_INSTALLER',ROOT/'packaging/install.sh'),p/'install.sh'); (p/'binary.sha256').write_text(hashlib.sha256(BIN.read_bytes()).hexdigest()+'\n'); return p
     def installer(self,package,*args):
-        return subprocess.run([str(package/'install.sh'),'--prefix',str(self.home/'.local'),*args],env=self.env,capture_output=True,timeout=20)
+        return subprocess.run([str(package/'install.sh'),'--prefix',str(self.home/'.local'),'--no-shell',*args],env=self.env,capture_output=True,timeout=20)
     def test_install_first_does_not_create_linux_private_data(self):
         p=self.package(); r=self.installer(p); self.assertEqual(r.returncode,0,r.stderr)
         self.assertFalse((self.home/'.local/share/j-jump').exists())

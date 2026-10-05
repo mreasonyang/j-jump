@@ -202,8 +202,10 @@ def formula(bundle, repository: str):
         lines.extend(["  end", ""])
     lines.extend(['  def install', '    bin.install "jjump"', '    bin.install_symlink "jjump" => "j-jump"',
                   '    pkgshare.install "LICENSE.md", "licenses", "dependencies.json", "manifest.json", "binary.sha256"', '  end', '',
-                  '  def caveats', '    <<~EOS', '      Activate J-Jump in your shell startup file:',
-                  '        Bash: eval "$(jjump init bash)"', '        Zsh:  eval "$(jjump init zsh)"', '        Fish: jjump init fish | source',
+                  '  def caveats', '    <<~EOS', '      Connect your shell automatically:',
+                  '        jjump shell install', '      Open a new terminal afterwards.',
+                  '      Optional: --shell bash|zsh|fish, --cmd jump, or --rc /absolute/startup-file.',
+                  '      Undo managed integration with: jjump shell uninstall',
                   '      First j/ji opens setup. Local-only setup needs no API key.', '    EOS', '  end', '',
                   '  test do', '    ENV["J_JUMP_HOME"] = (testpath/"state").to_s',
                   '    ENV.delete("J_JUMP_CONFIG")', '    ENV.delete("TYPESAFE_API_KEY")',

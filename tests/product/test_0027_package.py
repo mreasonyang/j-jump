@@ -61,6 +61,7 @@ class InstallerRecoverability(unittest.TestCase):
 
     def run_installer(self, *arguments, prefix=None, env=None):
         command = [str(self.script), '--prefix', str(prefix or self.prefix), *arguments]
+        command.append('--no-shell')
         return subprocess.run(command, capture_output=True, text=True, timeout=60, env=dict(env or os.environ, HOME=str(self.scratch), J_JUMP_HOME=str(self.scratch / "isolated-state")))
 
     def install(self, *arguments, prefix=None, env=None):

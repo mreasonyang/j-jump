@@ -140,7 +140,7 @@ class RetestRemediation(unittest.TestCase):
         prefix = self.root / 'prefix'
         env = dict(os.environ, HOME=str(self.root), J_JUMP_HOME=str(self.root / 'isolated'))
         for args in ((), ('--uninstall',)):
-            r = subprocess.run([str(package / 'install.sh'), '--prefix', str(prefix), *args],
+            r = subprocess.run([str(package / 'install.sh'), '--prefix', str(prefix), '--no-shell', *args],
                                capture_output=True, timeout=15, env=env)
             self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse((prefix / 'share/j-jump-install').exists())

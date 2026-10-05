@@ -179,8 +179,9 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn("/v0.0.27/" + item["filename"], content)
         self.assertIn('bin.install_symlink "jjump" => "j-jump"', content)
         self.assertIn('pkgshare.install "LICENSE.md", "licenses"', content)
-        for shell in ("bash", "zsh", "fish"):
-            self.assertIn("jjump init " + shell, content)
+        self.assertIn("jjump shell install", content)
+        self.assertIn("jjump shell uninstall", content)
+        self.assertIn("--shell bash|zsh|fish", content)
         self.assertNotIn('depends_on "rust"', content)
         self.assertNotIn("install.sh", content)
         self.assertNotIn("post_install", content)
