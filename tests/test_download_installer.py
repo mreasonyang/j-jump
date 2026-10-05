@@ -64,13 +64,13 @@ class DownloadInstallerTests(unittest.TestCase):
         self.prefix = self.root / "prefix with spaces"
         self.files = {}
         self.log = self.root / "curl.jsonl"
-        self.env = dict(os.environ, HOME=str(self.home), TMPDIR=str(self.tmp),
+        self.env = dict(os.environ, HOME=str(self.home), TMPDIR=str(self.tmp), SHELL="/bin/bash",
                         PATH=str(self.shims) + os.pathsep + os.environ["PATH"],
                         DOWNLOAD_LOG=str(self.log), DOWNLOAD_SYSTEM="Darwin",
                         DOWNLOAD_MACHINE="arm64", DOWNLOAD_MACOS="15.0",
                         DOWNLOAD_LATEST=f"https://github.com/{REPOSITORY}/releases/tag/v{VERSION}",
                         DOWNLOAD_FILES="{}", DOWNLOAD_READY=str(self.root / "ready"))
-        for key in ("DOWNLOAD_FAILURE", "DOWNLOAD_PAUSE"):
+        for key in ("DOWNLOAD_FAILURE", "DOWNLOAD_PAUSE", "ZDOTDIR", "XDG_CONFIG_HOME"):
             self.env.pop(key, None)
         self.shim("curl", f"#!{sys.executable}\n" + CURL_FIXTURE)
         self.shim("uname", '#!/bin/sh\ncase "$1" in -s) printf "%s\\n" "$DOWNLOAD_SYSTEM";; -m) printf "%s\\n" "$DOWNLOAD_MACHINE";; *) exit 2;; esac\n')
