@@ -32,9 +32,21 @@ Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS 
 The default repository is `mreasonyang/j-jump`, with public 0.0.33 assets. Retrieve the maintained installer from `main/install.sh`; without `--version`, it automatically chooses the latest stable release through GitHub's latest redirect. No version number is needed in the default command. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
 
 ```sh
-# Obtain the maintained installer; no fixed version is needed.
+# Install the latest stable release into "$HOME/.local".
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh
+```
+
+For a custom prefix or release version, pass options to `sh -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --prefix "$HOME/.local" --version 0.0.33
+```
+
+If you want to inspect the script before running it, download it first, review it and then run it with the desired options:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh -o j-jump-install.sh
-# Latest stable release (requires a latest redirect to a vX.Y.Z tag)
+# Review j-jump-install.sh before running it.
 sh ./j-jump-install.sh --prefix "$HOME/.local"
 # Optional: choose a specific release; v0.0.33 is also accepted
 sh ./j-jump-install.sh --version 0.0.33 --prefix "$HOME/.local"
