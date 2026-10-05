@@ -45,16 +45,12 @@ Choose a directory
 
 ## 快速开始
 
-**源码版本 0.0.34 新增自动接入 Shell。** 安装脚本默认完成接入，已安装的新版也可运行 `jjump shell install`。
-公开下载和 Homebrew 在新版发布前仍提供 0.0.33，请按下面步骤手动接入。
-自动接入、备份和撤销见[安装说明](packaging/README.md)（英文）。
-
 ### 1. 安装
 
 **Homebrew**：
 
 ```sh
-brew install mreasonyang/taps/j-jump
+brew install mreasonyang/taps/j-jump && jjump shell install
 ```
 
 **安装脚本**（macOS 15+ 或 Linux；x86-64 或 ARM64）：
@@ -63,26 +59,15 @@ brew install mreasonyang/taps/j-jump
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh
 ```
 
-脚本会自动选择适合你系统的版本，校验 SHA-256，然后把 `jjump`（以及等价的 `j-jump`）安装到 `~/.local/bin`。全程不需要 sudo，也不会改动你的 Shell 配置文件。[脚本选项](docs/RELEASE.md#download-installer)（英文）。
+脚本会自动选择适合你系统的版本，校验 SHA-256，然后把 `jjump`（以及等价的 `j-jump`）安装到 `~/.local/bin`。它会自动接入 Bash、Zsh 或 Fish，补齐 PATH，并备份已有启动文件。全程不需要 sudo；使用 `--no-shell` 可跳过 Shell 配置。[脚本选项](docs/RELEASE.md#download-installer)（英文）。
 
-### 2. 接入 Shell
+### 2. 打开新终端
 
-在对应 Shell 的启动文件里加一行，然后打开一个新终端：
+上面的安装命令会自动完成 Shell 接入。打开新终端后即可使用 `j` 和 `ji`。
+已有安装可运行 `jjump shell install`；用 `jjump shell uninstall` 撤销自动配置。
+[Shell 选项、备份与手动接入](packaging/README.md)（英文）。
 
-```sh
-# Bash：~/.bashrc
-eval "$(jjump init bash)"
-
-# Zsh：~/.zshrc
-eval "$(jjump init zsh)"
-
-# Fish：~/.config/fish/config.fish
-jjump init fish | source
-```
-
-如果你用的是安装脚本，而 `~/.local/bin` 还不在 `PATH` 中，请在这一行之前加上 `export PATH="$HOME/.local/bin:$PATH"`（Fish 用 `fish_add_path ~/.local/bin`）。
-
-> `j` 已经被别的命令占用了？用 `jjump init zsh --cmd jump`，就会改为提供 `jump` 和 `jumpi`。J-Jump 不会覆盖已有的 `j`/`ji` 命令。
+> `j` 已经被别的命令占用了？运行 `jjump shell install --cmd jump`，就会改为提供 `jump` 和 `jumpi`。J-Jump 不会覆盖已有的 `j`/`ji` 命令。
 
 ### 3. 开始跳转
 
@@ -205,18 +190,18 @@ jjump credential delete             # 删除保存的 Jev Key（预览）
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --replace
 ```
 
-卸载会保留你的配置、访问记录和已保存的 Key；如需一并删除，请先用上面的命令清理。别忘了从 Shell 启动文件中删除 `jjump init` 那一行。
+卸载会保留你的配置、访问记录和已保存的 Key；如需一并删除，请先用上面的命令清理。卸载可执行文件前，运行 `jjump shell uninstall` 撤销自动配置；手动添加的 `jjump init` 行请自行删除。
 
 ## 平台支持
 
 | 系统 | 安装脚本 | Homebrew |
 | --- | --- | --- |
-| macOS 15+（Apple 芯片） | ✅ | ✅ |
+| macOS 15+（Apple 芯片） | ✅ | 可用 |
 | macOS 15+（Intel） | ✅ | 可用 |
 | Linux x86-64（静态 musl 构建） | ✅ | 可用 |
 | Linux ARM64（静态 musl 构建） | ✅ | 可用 |
 
-✅ 表示安装后的发布版已在该系统上通过原生测试；“可用”表示 Formula 支持该系统，但这条 Homebrew 安装路径尚未经过原生测试。可执行文件未签名（macOS 上未经公证），安装程序改用 SHA-256 校验完整性。不支持 Windows、32 位系统和 macOS 15 以下版本。详见[发布状态与平台限制](docs/RELEASE.md)（英文）。
+✅ 表示安装后的发布版已在该系统上通过原生测试；“可用”表示 Formula 支持该系统，但 0.0.34 的这条 Homebrew 安装路径尚未经过原生测试。之前 0.0.33 的 Homebrew 生命周期已在 Apple 芯片上通过。可执行文件未签名（macOS 上未经公证），安装程序改用 SHA-256 校验完整性。不支持 Windows、32 位系统和 macOS 15 以下版本。详见[发布状态与平台限制](docs/RELEASE.md)（英文）。
 
 <details>
 <summary><b>从源码构建</b></summary>

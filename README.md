@@ -47,10 +47,6 @@ letters of its name and, with the optional Jev semantic model, finds it by what 
 - **Small and native.** One Rust binary for Bash, Zsh and Fish on macOS and Linux. No runtime or plugin manager is
   needed, and no background service runs for local navigation.
 
-**Source version 0.0.34 adds automatic shell setup.** Its install script connects your shell by default, and
-`jjump shell install` connects an installed binary. Public downloads and Homebrew still provide 0.0.33 until the new
-version is published; use the manual steps below for that release. See [automatic integration and removal](packaging/README.md).
-
 ## Quick start
 
 ### 1. Install
@@ -58,7 +54,7 @@ version is published; use the manual steps below for that release. See [automati
 **Homebrew**:
 
 ```sh
-brew install mreasonyang/taps/j-jump
+brew install mreasonyang/taps/j-jump && jjump shell install
 ```
 
 **Install script** (macOS 15+ or Linux; x86-64 or ARM64):
@@ -68,29 +64,18 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 ```
 
 The script picks the right build for your system, verifies its SHA-256 checksum and installs `jjump` (plus the
-equivalent `j-jump`) into `~/.local/bin`. It needs no sudo and never edits your shell files.
+equivalent `j-jump`) into `~/.local/bin`. It connects Bash, Zsh or Fish and adds the binary directory to PATH, with
+backups of existing startup files. It needs no sudo. Pass `--no-shell` to skip shell configuration.
 [Script options](docs/RELEASE.md#download-installer).
 
-### 2. Connect your shell
+### 2. Open a new terminal
 
-Add one line to your shell's startup file, then open a new terminal:
+The installation commands above connect your shell automatically. Open a new terminal to use `j` and `ji`.
+For an existing installation, run `jjump shell install`; undo its managed configuration with `jjump shell uninstall`.
+[Shell options, backups and manual setup](packaging/README.md).
 
-```sh
-# Bash: ~/.bashrc
-eval "$(jjump init bash)"
-
-# Zsh: ~/.zshrc
-eval "$(jjump init zsh)"
-
-# Fish: ~/.config/fish/config.fish
-jjump init fish | source
-```
-
-If you used the install script and `~/.local/bin` isn't on your `PATH` yet, put `export PATH="$HOME/.local/bin:$PATH"`
-(Fish: `fish_add_path ~/.local/bin`) above that line.
-
-> Already use `j` for something else? `jjump init zsh --cmd jump` creates `jump` and `jumpi` instead. J-Jump refuses
-> to overwrite existing `j`/`ji` commands.
+> Already use `j` for something else? Run `jjump shell install --cmd jump` to create `jump` and `jumpi` instead.
+> J-Jump refuses to overwrite existing `j`/`ji` commands.
 
 ### 3. Start jumping
 
@@ -228,19 +213,19 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 ```
 
 Uninstalling keeps your settings, history and stored key; clear them first with the commands above if you want them gone.
-Remove the `jjump init` line from your shell's startup file too.
+Run `jjump shell uninstall` before removing the binary to undo managed shell configuration. Remove any manual `jjump init` lines yourself.
 
 ## Platforms
 
 | System | Install script | Homebrew |
 | --- | --- | --- |
-| macOS 15+ on Apple silicon | ✅ | ✅ |
+| macOS 15+ on Apple silicon | ✅ | Available |
 | macOS 15+ on Intel | ✅ | Available |
 | Linux x86-64 (static musl build) | ✅ | Available |
 | Linux ARM64 (static musl build) | ✅ | Available |
 
 ✅ means the installed release passes native tests on that system; "Available" means the Formula supports it but that
-Homebrew route hasn't been tested natively yet. Binaries are unsigned (no macOS notarization);
+Homebrew route for 0.0.34 hasn't been tested natively yet. The earlier 0.0.33 Homebrew lifecycle passed on Apple silicon. Binaries are unsigned (no macOS notarization);
 installers check SHA-256 checksums instead. Windows, 32-bit systems and macOS before 15 aren't supported.
 Details: [release status and platform limits](docs/RELEASE.md).
 

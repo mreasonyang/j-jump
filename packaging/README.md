@@ -23,9 +23,7 @@ jjump shell install --shell zsh --rc /absolute/startup-file
 jjump shell uninstall
 ```
 
-The public release is currently 0.0.33; these automatic commands are available in source version 0.0.34 and require a
-new release to reach the public download and Homebrew channels. For 0.0.33 or manual integration, add the binary
-directory to PATH and activate your shell:
+For manual integration, add the binary directory to PATH and activate your shell:
 
 ```sh
 # Bash
@@ -83,9 +81,9 @@ Only current config3/visits4/backup3/cache3 are accepted; old/unknown formats re
 
 The archive contains manifest.json with source SHA/target/binary hash, binary.sha256, dependencies.json schema2, licenses/ and LICENSE.md. The dependency inventory records the resolved target graph and collected licence texts; missing texts are named explicitly in the inventory and licenses/MISSING.txt. Hashes establish identity, not signing/notarization or correctness.
 
-A source README update does not change an already-built archive's bytes. The public source is [mreasonyang/j-jump](https://github.com/mreasonyang/j-jump). [Release 0.0.33](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.33) provides all four accepted native archives. The public Homebrew channel is `brew install mreasonyang/taps/j-jump`; see [release acceptance and platform limits](../docs/RELEASE.md).
+A source README update does not change an already-built archive's bytes. The public source is [mreasonyang/j-jump](https://github.com/mreasonyang/j-jump). [Release 0.0.34](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.34) provides all four accepted native archives. The public Homebrew channel is `brew install mreasonyang/taps/j-jump`; see [release acceptance and platform limits](../docs/RELEASE.md).
 
 Installer receipts live in `share/j-jump-install`, separate from private data. Installing the same unchanged archive succeeds without rewriting binaries. Uninstall stops verified same-profile helpers, keeps unrelated profiles and user state, and removes only receipt-owned current names. Unknown previous executables are preserved because current-only installations do not create or adopt them.
 
 The source repository also provides a platform-detecting download entry at its root `install.sh`. It downloads and
-verifies a matching public release before calling this archive installer. Latest and explicit-version public installation have passed on native macOS ARM, with the same state-preserving removal contract.
+verifies a matching public release before calling this archive installer. All four native Actions builds exercise latest and explicit-version installation through a local TLS downloader fixture, with the same state-preserving removal contract. Public archive downloads are separately verified against the accepted bundle.
