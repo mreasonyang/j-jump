@@ -1,6 +1,15 @@
-# Release and Homebrew preparation
+# Release and Homebrew
 
-The release tooling is prepared. Manual hosted build acceptance is enabled. Binary release publication and remote Homebrew updates require explicit publication scope. No public installation URL is promised. The current VERSION is 0.0.32.
+The current VERSION is 0.0.32. Four native Actions builds and their exact installed-package tests passed on 2026-10-05 in [run 37301962036](https://github.com/mreasonyang/j-jump/actions/runs/37301962036), using immutable tag v0.0.32 at source 209cc98d41ebed4bdfba5079790f1053212608e2. The complete four-target bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
+
+| Target | Native build, installed product and TLS downloader lifecycle |
+| --- | --- |
+| aarch64-apple-darwin | Passed on macos-15 |
+| x86_64-apple-darwin | Passed on macos-15-intel |
+| aarch64-unknown-linux-musl | Passed on ubuntu-24.04-arm |
+| x86_64-unknown-linux-musl | Passed on ubuntu-24.04 |
+
+Native macOS ARM Homebrew installation, Formula tests, Bash/Zsh/Fish navigation, reinstallation and data-preserving uninstall also pass against the exact Actions archive. This acceptance uses an isolated preseeded Homebrew cache. It establishes the Formula and installed-product behavior; it does not exercise an anonymous public release URL. Binary assets and the remote tap are not published yet and require explicit publication scope.
 
 ## Download installer
 
@@ -13,11 +22,10 @@ and sha256sum or shasum, plus standard POSIX tools. It requires no Rust, Python 
 | --- | --- | --- |
 | macOS / arm64 or aarch64 | aarch64-apple-darwin | macOS15 |
 | macOS / x86_64 or amd64 | x86_64-apple-darwin | macOS15 |
-| Linux / x86_64 or amd64 | x86_64-unknown-linux-musl | Prepared musl archive |
-| Linux / aarch64 or arm64 | aarch64-unknown-linux-musl | Prepared musl archive |
+| Linux / x86_64 or amd64 | x86_64-unknown-linux-musl | Native tested musl archive |
+| Linux / aarch64 or arm64 | aarch64-unknown-linux-musl | Native tested musl archive |
 
-Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection tests for
-the four targets are fixtures; they do not establish native execution on all four platforms.
+Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection fixtures cover target selection; the native Actions runs above additionally exercise each target's real archive through the TLS downloader and installed lifecycle.
 
 The default repository is `mreasonyang/j-jump`, which is public and has no release assets yet. The script
 therefore reports unavailable releases without installing. A future separately approved public distribution repository
@@ -91,7 +99,7 @@ names are retained. Development fixture packaging may accept debug source paths 
 The exact artifact must still pass the installed-product and downloader lifecycle before acceptance. This package
 boundary does not clean Git history, change source visibility, sign an archive or publish it.
 
-The prepared hosted matrix uses macos-15, macos-15-intel, ubuntu-24.04 and ubuntu-24.04-arm. Rust is pinned to1.98.0; Cargo.lock is retained and builds use --locked. Actions are pinned to exact commit SHAs. Each claimed platform requires a successful native run for its exact source tag; an in-progress or failed run does not establish support.
+The hosted matrix uses macos-15, macos-15-intel, ubuntu-24.04 and ubuntu-24.04-arm. Rust is pinned to1.98.0; Cargo.lock is retained and builds use --locked. Actions are pinned to exact commit SHAs. Each claimed platform requires a successful native run for its exact source tag; an in-progress or failed run does not establish support. The no-match performance regression runs against the exact optimized installed binary with its original timing bounds; rapid prompt tracking is also checked in the native installed suite.
 
 ## Bundle and Formula
 
@@ -106,7 +114,7 @@ ruby -c dist/j-jump.rb
 
 The repository in this example is a placeholder argument, not a published destination. The generator uses the archive's actual immutable filename/checksum and refuses incomplete, dirty, corrupt, mixed-source, unsafe or mismatched-architecture bundles. The inventory is the target-resolved Cargo graph, including build/test dependencies; it is not advertised as an SPDX SBOM.
 
-The generated Formula downloads prebuilt archives, installs both current names directly into its keg and preserves license/provenance files. It does not invoke install.sh, install Rust/Python, edit startup files or access credentials. Shell activation uses eval of jjump init bash/zsh, or jjump init fish piped to source. Formula tests use an isolated profile with semantic requests disabled.
+The generated Formula downloads prebuilt archives, installs both current names directly into its keg and preserves license/provenance files. It does not invoke install.sh, install Rust/Python, edit startup files or access credentials. Shell activation uses eval of jjump init bash/zsh, or jjump init fish piped to source. Formula tests use an isolated profile with semantic requests disabled, record from inside the target directory and execute real offline Bash navigation. The Formula infers its version from the immutable archive URL. Distribution metadata and Formula test corrections do not rebuild or change the source-bound archives.
 
 The existing public tap is `mreasonyang/homebrew-taps`, with root flomo.rb. Place j-jump.rb at that root too: introducing Formula/ alone would hide the existing root Formula under Homebrew's directory-discovery rules. The update helper writes only j-jump.rb, refuses dirty/non-main/foreign tap checkouts and reads back an ordinary main push.
 
@@ -126,11 +134,11 @@ brew upgrade mreasonyang/taps/j-jump
 brew uninstall mreasonyang/taps/j-jump
 ```
 
-These commands are not currently an available release claim. Real Homebrew installation, upgrade and data-preserving uninstall must be measured against published artifacts before acceptance. Local tests, static Actions lint, remote source readback, hosted target tests and public installation are separate evidence states.
+These commands are not currently an available release claim. Anonymous download and Homebrew acceptance against the published channel remain required after publication. Local tests, cached Homebrew acceptance, remote source readback, hosted target tests and public installation are separate evidence states.
 
 ## Platform and distribution limits
 
-The prepared target matrix is not a claim of native acceptance on every target. Public downloads and the Homebrew
+The four archive targets have native Actions acceptance. Homebrew lifecycle execution has been measured on macOS ARM; Formula audits cover all OS/CPU branches, and other native Homebrew lifecycle environments have not been measured. Public downloads and the Homebrew
 channel are unavailable until their artifacts are published and independently verified. macOS packages are unsigned;
 checksums bind their identities and do not establish notarization. Linux Secret Service prompts, terminal behavior,
 live-provider effectiveness and genuine-user utility require their own acceptance.

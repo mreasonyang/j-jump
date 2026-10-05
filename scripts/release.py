@@ -211,9 +211,12 @@ def formula(bundle, repository: str):
                   '    assert_match "jjump #{version}", shell_output("#{bin}/j-jump --version")',
                   '    system bin/"jjump", "config", "set", "semantic", "off"',
                   '    target = testpath/"alpha space"', '    target.mkpath',
-                  '    system bin/"jjump", "record", "--", target',
+                  '    cd target do', '      system bin/"jjump", "record", "--", target', '    end',
                   '    assert_equal "#{target}\\n", shell_output("#{bin}/jjump --offline query alpha")',
-                  '    assert_match "j()", shell_output("#{bin}/jjump init bash")', '  end', 'end', ''])
+                  '    ENV.prepend_path "PATH", bin',
+                  '    system "bash", "--noprofile", "--norc", "-c",',
+                  '           \'set -e; eval "$(jjump init bash)"; j --offline alpha; test "$PWD" = "$1"\', "--", target',
+                  '  end', 'end', ''])
     return "\n".join(lines)
 
 
