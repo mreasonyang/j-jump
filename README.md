@@ -2,7 +2,7 @@
 
 Independent Rust directory navigation for Bash, Zsh and Fish. Local navigation needs no zoxide, fzf, Python, network or background service. The interface is CLI and optional terminal pickers only.
 
-Current source: **0.0.33**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Version 0.0.32 passed native Actions builds and installed-package tests on macOS/Linux ARM64 and x86-64; the 0.0.33 candidate includes the accepted Formula corrections and awaits its own native run. Public release archives are not yet available; see [release status and platform limits](docs/RELEASE.md).
+Current source: **0.0.33**, defined by [VERSION](VERSION). Automatic semantic navigation remains disabled. Native Actions builds and installed-package tests pass on macOS/Linux ARM64 and x86-64. Public release archives are not yet available; see [release status and platform limits](docs/RELEASE.md).
 
 ## Install and activate
 

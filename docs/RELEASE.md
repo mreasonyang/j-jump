@@ -1,6 +1,6 @@
 # Release and Homebrew
 
-The current VERSION is 0.0.33. This final candidate includes the verified Formula corrections and awaits native acceptance. The previous 0.0.32 candidate passed four native Actions builds and their exact installed-package tests on 2026-10-05 in [run 37301962036](https://github.com/mreasonyang/j-jump/actions/runs/37301962036), using immutable tag v0.0.32 at source 209cc98d41ebed4bdfba5079790f1053212608e2. The complete four-target bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
+The current VERSION is 0.0.33. Four native Actions builds and their exact installed-package tests passed on 2026-10-05 in [run 37305476600](https://github.com/mreasonyang/j-jump/actions/runs/37305476600), using immutable tag v0.0.33 at source cc6933f86ce2e910183c3ef2da089a612742a393. The complete four-target bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
 | --- | --- |
@@ -9,7 +9,9 @@ The current VERSION is 0.0.33. This final candidate includes the verified Formul
 | aarch64-unknown-linux-musl | Passed on ubuntu-24.04-arm |
 | x86_64-unknown-linux-musl | Passed on ubuntu-24.04 |
 
-Native macOS ARM Homebrew installation, Formula tests, Bash/Zsh/Fish navigation, reinstallation and data-preserving uninstall also pass against the exact Actions archive. This acceptance uses an isolated preseeded Homebrew cache. It establishes the Formula and installed-product behavior; it does not exercise an anonymous public release URL. Binary assets and the remote tap are not published yet and require explicit publication scope.
+Native macOS ARM Homebrew installation, Formula tests, Bash/Zsh/Fish navigation, reinstallation, real 0.0.30 to 0.0.33 upgrade and data-preserving uninstall also pass against the exact Actions archive and unmodified CI-generated Formula. Strict Formula audits cover all OS/CPU branches. This acceptance uses an isolated preseeded Homebrew cache, including the prior-version archive for the controlled upgrade. It establishes the Formula and installed-product behavior; it does not exercise an anonymous public release URL. Binary assets and the remote tap are not published yet and require explicit publication scope.
+
+The archive installer separately passes 0.0.30 to 0.0.33 replacement, unchanged repeat installation and uninstall on the current macOS ARM host. Config/history, foreign commands and startup files remain unchanged. The root downloader also passes its 20 checks with this exact native archive through real curl and a local TLS fixture. Anonymous source-tag retrieval of the installer is verified; a requested unpublished release fails without creating the prefix or modifying user data.
 
 ## Download installer
 
@@ -28,19 +30,19 @@ and sha256sum or shasum, plus standard POSIX tools. It requires no Rust, Python 
 Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection fixtures cover target selection; the native Actions runs above additionally exercise each target's real archive through the TLS downloader and installed lifecycle.
 
 The default repository is `mreasonyang/j-jump`, which is public and has no release assets yet. The script
-therefore reports unavailable releases without installing. A future separately approved public distribution repository
-can be selected with `--repository OWNER/REPO`; this flag does not create or publish anything. From a checkout or a
-separately obtained copy of the root script, the following commands apply **after that public release is available**
-(replace `OWNER/REPO` with the actual approved destination):
+therefore reports unavailable releases without installing. `--repository OWNER/REPO` selects another public asset
+destination; this flag does not create or publish anything. The following commands apply **after the public release is available**:
 
 ```sh
+# Obtain the installer from the immutable source tag.
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/v0.0.33/install.sh -o j-jump-install.sh
 # Latest stable release (requires a latest redirect to a vX.Y.Z tag)
-sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local"
+sh ./j-jump-install.sh --prefix "$HOME/.local"
 # Specific release; v0.0.33 is also accepted
-sh ./install.sh --repository OWNER/REPO --version 0.0.33 --prefix "$HOME/.local"
+sh ./j-jump-install.sh --version 0.0.33 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
-sh ./install.sh --repository OWNER/REPO --prefix "$HOME/.local" --replace
-sh ./install.sh --help
+sh ./j-jump-install.sh --prefix "$HOME/.local" --replace
+sh ./j-jump-install.sh --help
 ```
 
 Both `jjump` and `j-jump` are installed. The default prefix is `$HOME/.local`. The bundled installer refuses foreign or
