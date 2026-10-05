@@ -31,7 +31,9 @@ def publish(root, dist, repository, tag):
         notes = Path(temporary) / "notes.md"
         notes.write_text(f"J-Jump {bundle['version']}\n\nSource SHA: `{bundle['source_sha']}`\n\n"
                          "Unsigned archives. Verify SHA256 before installation.\n"
-                         "Shell initialization is manual. Platform results are in the corresponding workflow run.\n")
+                         "The archive installer configures Bash, Zsh or Fish automatically; use --no-shell to opt out.\n"
+                         "After Homebrew installation, run `jjump shell install` and open a new terminal.\n"
+                         "Platform results are in the corresponding workflow run.\n")
         subprocess.run(["gh", "release", "create", tag, "--repo", repository, "--draft",
                         "--title", "J-Jump " + bundle["version"], "--notes-file", str(notes), *files], check=True)
         download = Path(temporary) / "download"

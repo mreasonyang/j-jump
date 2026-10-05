@@ -55,12 +55,12 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 tar -xzf "dist/j-jump-$version-$target.tar.gz" -C "$scratch"
-"$package/install.sh" --prefix "$prefix"
+"$package/install.sh" --prefix "$prefix" --no-shell
 JJ_TEST_BIN="$prefix/bin/jjump" "$performance_test" \
     no_match_query_cost_does_not_scale_with_inventory --ignored --exact --test-threads=1
 JJ_TEST_BIN="$prefix/bin/jjump" python3 -m unittest discover -s tests/product -v
 JJ_DOWNLOAD_TEST_ARCHIVE="$PWD/dist/j-jump-$version-$target.tar.gz" \
     python3 -m unittest discover -s tests -p test_download_installer.py -v
-"$package/install.sh" --prefix "$prefix" --replace
+"$package/install.sh" --prefix "$prefix" --replace --no-shell
 "$package/install.sh" --prefix "$prefix" --uninstall
 [ ! -e "$prefix/bin/jjump" ] && [ ! -L "$prefix/bin/j-jump" ]
