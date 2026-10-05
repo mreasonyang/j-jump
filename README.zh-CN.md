@@ -13,25 +13,7 @@
 
 </div>
 
-```text
-~ ❯ j pay
-~/code/billing-service/internal/payments ❯ j k8s
-~/code/acme-api/deploy/k8s ❯ ji my cv
-Checking with Jev...
-Jev suggestion: first; choose explicitly
-Choose a directory
-1. ~/Documents/resumes [Jev]
-2. ~/My Projects
-3. ~/go
-…
-> 1
-~/Documents/resumes ❯ ji 税务
-…
-1. ~/Documents/taxes [Jev]
-…
-> 1
-~/Documents/taxes ❯
-```
+<p align="center"><img src=".github/assets/demo.gif" alt="J-Jump 演示：j pay 按名称跳转；ji my cv 经 Jev 找到 resumes；ji 税务 找到 taxes" width="760"></p>
 
 你从没输入过 “resumes” 或 “taxes”。J-Jump 会记住你去过的目录：记得名字，几个字母就能跳到；记不清名字，可选的 Jev 语义模型会按含义帮你找到，中英文混用也没问题。
 

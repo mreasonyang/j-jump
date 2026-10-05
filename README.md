@@ -13,25 +13,7 @@
 
 </div>
 
-```text
-~ ❯ j pay
-~/code/billing-service/internal/payments ❯ j k8s
-~/code/acme-api/deploy/k8s ❯ ji my cv
-Checking with Jev...
-Jev suggestion: first; choose explicitly
-Choose a directory
-1. ~/Documents/resumes [Jev]
-2. ~/My Projects
-3. ~/go
-…
-> 1
-~/Documents/resumes ❯ ji 税务
-…
-1. ~/Documents/taxes [Jev]
-…
-> 1
-~/Documents/taxes ❯
-```
+<p align="center"><img src=".github/assets/demo.gif" alt="J-Jump demo: j pay jumps by name; ji my cv finds resumes with Jev; ji 税务 finds taxes" width="760"></p>
 
 You never typed "resumes" or "taxes". J-Jump remembers the folders you visit, takes you to the right one by a few
 letters of its name and, with the optional Jev semantic model, finds it by what it means, even in another language.
