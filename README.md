@@ -15,11 +15,11 @@ brew install mreasonyang/taps/j-jump
 Or use the platform-detecting download installer, without Rust, Python or jq:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/v0.0.33/install.sh -o j-jump-install.sh
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh -o j-jump-install.sh
 sh ./j-jump-install.sh --prefix "$HOME/.local"
 ```
 
-Both channels provide `jjump` and `j-jump`; shell activation remains manual. The installer supports latest and explicit versions, SHA256 verification and receipt-owned replacement. See [download installation](docs/RELEASE.md#download-installer) for options and platform limits.
+Both channels provide `jjump` and `j-jump`; shell activation remains manual. The download installer automatically chooses the latest stable release. Use `--version X.Y.Z` only when you want a specific release. Downloads use SHA256 verification and receipt-owned replacement. See [download installation](docs/RELEASE.md#download-installer) for options and platform limits.
 
 To build from source instead, use Rust 1.88+ (for example via [rustup](https://rustup.rs)), a C toolchain and Python 3:
 

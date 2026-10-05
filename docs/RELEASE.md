@@ -29,14 +29,14 @@ and sha256sum or shasum, plus standard POSIX tools. It requires no Rust, Python 
 
 Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection fixtures cover target selection; the native Actions runs above additionally exercise each target's real archive through the TLS downloader and installed lifecycle.
 
-The default repository is `mreasonyang/j-jump`, with public 0.0.33 assets. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
+The default repository is `mreasonyang/j-jump`, with public 0.0.33 assets. Retrieve the maintained installer from `main/install.sh`; without `--version`, it automatically chooses the latest stable release through GitHub's latest redirect. No version number is needed in the default command. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
 
 ```sh
-# Obtain the installer from the immutable source tag.
-curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/v0.0.33/install.sh -o j-jump-install.sh
+# Obtain the maintained installer; no fixed version is needed.
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh -o j-jump-install.sh
 # Latest stable release (requires a latest redirect to a vX.Y.Z tag)
 sh ./j-jump-install.sh --prefix "$HOME/.local"
-# Specific release; v0.0.33 is also accepted
+# Optional: choose a specific release; v0.0.33 is also accepted
 sh ./j-jump-install.sh --version 0.0.33 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
 sh ./j-jump-install.sh --prefix "$HOME/.local" --replace
