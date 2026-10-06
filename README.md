@@ -232,14 +232,14 @@ Run `jjump shell uninstall` before removing the binary to undo managed shell con
 
 | System | Install script | Homebrew |
 | --- | --- | --- |
-| macOS 15+ on Apple silicon | ✅ | Available |
-| macOS 15+ on Intel | ✅ | Available |
-| Linux x86-64 (static musl build) | ✅ | Available |
-| Linux ARM64 (static musl build) | ✅ | Available |
+| macOS 15+ on Apple silicon | ✅ | ✅ |
+| macOS 15+ on Intel | ✅ | ✅ |
+| Linux x86-64 (static musl build) | ✅ | ✅ |
+| Linux ARM64 (static musl build) | ✅ | ✅ |
 
-✅ means the installed 0.0.38 archive passes native tests on that system. "Available" means the Formula supports that
-Homebrew route and its downloads are verified; the complete Homebrew lifecycle has not been tested natively for this release.
-Historical Apple silicon Homebrew acceptance applies to 0.0.35 only. Binaries are unsigned (no macOS notarization);
+✅ means the 0.0.38 installation route passes native acceptance on that system. Homebrew 7.0.8 installation,
+repeat, test, reinstall, real 0.0.35-to-0.0.38 upgrade, cleanup and uninstall pass in independent prefixes,
+including Bash/Zsh/Fish integration and user-data preservation. Binaries are unsigned (no macOS notarization);
 installers check SHA-256 checksums instead. Windows, 32-bit systems and macOS before 15 aren't supported.
 Details: [release status and platform limits](docs/RELEASE.md).
 

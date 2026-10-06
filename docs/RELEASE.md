@@ -11,7 +11,9 @@ The current source and latest published release is [J-Jump 0.0.38](https://githu
 
 Each native job tests automatic Bash/Zsh/Fish startup configuration, backups, exact undo, command conflicts and repeated installation in synthetic homes, both from source and from the exact installed archive. The real-curl TLS downloader suite tests the exact archive's installation, repeat, replacement and removal lifecycle. Temporary acceptance installations outside those shell fixtures pass `--no-shell` and leave runner startup files untouched. Ubuntu jobs suppress the distribution's global `compinit` initialization so its terminal prompt does not contaminate isolated fixture stderr.
 
-The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified Formula generated from the accepted four-target 0.0.38 bundle. After Homebrew installation, run `jjump shell install`; the complete command below does both. Formula generation, Ruby syntax, public downloads and the exact tap commit are verified. The current 0.0.38 Homebrew lifecycle has not been executed natively; archive lifecycle tests are separate evidence.
+The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified Formula generated from the accepted four-target 0.0.38 bundle. After Homebrew installation, run `jjump shell install`; the complete command below does both. Formula generation, Ruby syntax, public downloads and the exact tap commit are verified. The [native Homebrew acceptance run](https://github.com/mreasonyang/j-jump/actions/runs/37474571928) passes on all four targets using Homebrew 7.0.8, the real public Formula and the exact public assets in independent, non-default prefixes. Installed binary hashes match the accepted source-bound bundle.
+
+Each Homebrew job passes install, repeat install, `brew test`, reinstall, a genuine public 0.0.35-to-0.0.38 upgrade, old-keg cleanup and uninstall. Bash (interactive and login), Zsh and Fish startup, offline history navigation, active binary version after upgrade, idempotent shell installation and exact integration undo pass. Reinstall, upgrade, cleanup and uninstall preserve synthetic configuration, visits and unrelated startup content. Current installation and upgrade baselines use independent profiles. Provider credentials are excluded and semantic navigation is disabled.
 
 The public root downloader passes latest 0.0.38 installation at the default prefix, unchanged repeat, explicit replacement, Bash/Zsh/Fish startup and navigation, managed shell removal and configuration-preserving binary uninstall on native Linux x86-64. A real public 0.0.35-to-0.0.38 upgrade preserves configuration, visits and unrelated startup content. Installed binary hashes match the accepted public archive.
 
@@ -196,10 +198,10 @@ brew upgrade mreasonyang/taps/j-jump
 brew uninstall mreasonyang/taps/j-jump
 ```
 
-The current native archive and Linux public-downloader lifecycle results provide the separately described evidence above; the current Homebrew lifecycle remains unmeasured. The tap update verifies public assets and reads back the exact remote commit.
+The current native archive, four-target public Homebrew and Linux public-downloader lifecycle results provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
 
 ## Platform and distribution limits
 
-The four 0.0.38 archive targets have native Actions acceptance and verified public downloads. Current 0.0.38 Homebrew lifecycle execution is unmeasured on all targets. Historical macOS ARM64 Homebrew acceptance applies to 0.0.35 only. macOS packages are unsigned;
+The four 0.0.38 archive targets have native Actions acceptance and verified public downloads. The current Homebrew 7.0.8 lifecycle also passes natively on all four targets in independent, non-default prefixes. These checks exercise the current Formula and public assets; existing-user Homebrew installations and provider credential prompts remain separate environment-dependent behavior. macOS packages are unsigned;
 checksums bind their identities and do not establish notarization. Linux Secret Service prompts, terminal behavior,
 live-provider effectiveness and genuine-user utility require their own acceptance.

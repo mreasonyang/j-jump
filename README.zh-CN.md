@@ -208,12 +208,12 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 
 | 系统 | 安装脚本 | Homebrew |
 | --- | --- | --- |
-| macOS 15+（Apple 芯片） | ✅ | 可用 |
-| macOS 15+（Intel） | ✅ | 可用 |
-| Linux x86-64（静态 musl 构建） | ✅ | 可用 |
-| Linux ARM64（静态 musl 构建） | ✅ | 可用 |
+| macOS 15+（Apple 芯片） | ✅ | ✅ |
+| macOS 15+（Intel） | ✅ | ✅ |
+| Linux x86-64（静态 musl 构建） | ✅ | ✅ |
+| Linux ARM64（静态 musl 构建） | ✅ | ✅ |
 
-✅ 表示安装后的 0.0.38 压缩包已在该系统上通过原生测试；“可用”表示 Formula 支持该系统且公开下载已校验，本版 Homebrew 的完整生命周期尚未经过原生测试。此前 Apple 芯片的 Homebrew 验收结果只适用于 0.0.35。可执行文件未签名（macOS 上未经公证），安装程序改用 SHA-256 校验完整性。不支持 Windows、32 位系统和 macOS 15 以下版本。详见[发布状态与平台限制](docs/RELEASE.md)（英文）。
+✅ 表示 0.0.38 的对应安装方式已在该系统上通过原生验收。Homebrew 7.0.8 已在独立前缀中通过安装、重复安装、测试、重装、真实的 0.0.35→0.0.38 升级、清理旧版本和卸载，涵盖 Bash/Zsh/Fish 集成及用户数据保留。可执行文件未签名（macOS 上未经公证），安装程序改用 SHA-256 校验完整性。不支持 Windows、32 位系统和 macOS 15 以下版本。详见[发布状态与平台限制](docs/RELEASE.md)（英文）。
 
 <details>
 <summary><b>从源码构建</b></summary>
