@@ -4,6 +4,7 @@ pub mod credential;
 pub mod engine;
 pub mod picker;
 pub mod provider;
+pub mod providers;
 pub mod shell;
 pub mod shell_install;
 pub mod store;

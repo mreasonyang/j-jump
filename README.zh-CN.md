@@ -131,6 +131,27 @@ jjump config set no_send '["/work/private-client"]'
 jjump config set exclude '["/work/scratch"]'
 ```
 
+## 本机 Tev1 4B
+
+源码版本 0.0.39 支持在 `jjump setup` 选择 `tev1`。请自行安装并启动 Ollama 0.35 或更高版本，
+准备 `tev1:4b` 的 GGUF 权重；System One 不支持 MLX/Safetensors 权重。J-Jump 不自动下载模型或管理服务。
+
+```sh
+jjump config set provider tev1
+jjump config set ollama_url http://127.0.0.1:11434
+jjump provider-check --json
+jjump config set semantic on
+```
+
+Tev1 无需 API Key，不读取钥匙串。只连接本机 IPv4/IPv6 loopback 地址，不经过代理、不跟随重定向。
+`provider-check` 显式检查服务版本、模型元数据和一条合成决策，可能加载模型；通过不代表目录选择质量已验证。
+setup、doctor、状态和 preview 不联网。`--offline` 同样禁止本机模型请求。
+
+最多 23 个目录组加 `none`，上下文预算可能进一步减少候选。小候选池为工作区、查询相关项和通用目录名保留机会，
+但不能保证目标一定入池。使用 `jjump preview 查询` 查看实际请求。许可、隐私过滤和明确选择仍然生效。
+单次请求含冷启动最多等待 10 秒，模型请求后保留加载五分钟；内存占用和服务生命周期由 Ollama 管理。
+本地模型标签可更换权重，因此不持久缓存 Tev1 答案。故障不会自动切换服务商，也不会自动跳转。
+
 ## 配置
 
 可以用交互式的 `jjump setup`，也可以用 `jjump config set 键 值`。`jjump config show` 显示当前配置，`jjump doctor` 离线检查并给出下一步建议。

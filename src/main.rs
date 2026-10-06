@@ -22,7 +22,7 @@ mod wait_ui;
     name = "jjump",
     bin_name = "jjump",
     version,
-    about = "Private local directory navigation. Optional Jev or Clef-Flash suggestions always require selection.",
+    about = "Private local directory navigation. Optional cloud or local model suggestions always require selection.",
     after_help = "Connect your shell automatically: jjump shell install\nFirst j/ji opens setup; edit later: jjump setup\nZsh: eval \"$(jjump init zsh)\"\nBash: eval \"$(jjump init bash)\"\nFish: jjump init fish | source\nUse j QUERY, j -- PATH, j -, ji QUERY.\nNo key/network is required for local navigation. Exit codes: 2 input, 3 no match, 4 selection required, 5 provider, 6 path, 7 state, 130 cancelled."
 )]
 struct Cli {
@@ -102,6 +102,11 @@ enum Command {
     },
     /// Check settings, visit history and provider readiness (no network)
     Doctor {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explicitly test a local provider service and model with synthetic data
+    ProviderCheck {
         #[arg(long)]
         json: bool,
     },
@@ -629,7 +634,7 @@ fn query(
                 weight: 0.0,
             }],
             None,
-            "Jev",
+            "",
         )?);
     }
     let policy_read = paths.policy_lock()?;
@@ -842,12 +847,12 @@ fn query(
                 match waited? {
                     Some(Ok((s, epoch))) => {
                         suggested = Some(s.ok_or(Error(3, format!("{} found no reliable match; use jjump --offline query --interactive to browse locally", cfg.provider.label()).into()))?);
-                        if suggested.is_some() {
+                        if suggested.is_some() && cfg.provider.needs_credentials() {
                             semantic_epoch = Some(epoch);
                         }
                     }
                     Some(Err(e)) => {
-                        let detail = e.1.replace("Jev", cfg.provider.label());
+                        let detail = e.1.to_string();
                         let detail = if detail.contains(cfg.provider.label()) {
                             detail
                         } else {
@@ -936,6 +941,9 @@ fn setup(paths: &Paths) -> Result<()> {
     setup_ui::run(paths)
 }
 fn credential_status(cfg: &Config) -> serde_json::Value {
+    if !cfg.provider.needs_credentials() {
+        return json!({"provider":cfg.provider.id(),"source":"none","required":false,"system_store":"not accessed"});
+    }
     let environment = j_jump::credential::environment_name(cfg.provider).is_some();
     json!({"provider":cfg.provider.id(),"environment_variable":j_jump::credential::environment_name(cfg.provider),"source":if environment{"environment"}else{cfg.credential_source()},"present":if environment{Some(true)}else if cfg.credential_source()=="system"{None}else{Some(false)},"system_store":"not accessed by offline status"})
 }
@@ -945,7 +953,7 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
             let cfg = paths.load()?;
             ui::configure(&cfg.language);
             if json {
-                println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"saved":cfg,"source":if paths.config.exists(){"user config"}else{"defaults"},"effective":{"semantic":cfg.semantic&&!offline,"tracking":cfg.tracking},"overrides":{"offline":offline},"credential":credential_status(&cfg),"automatic_quality_approved":false,"provider_live_test":"not run","proxy":cfg.proxy})).unwrap());
+                println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"saved":cfg,"source":if paths.config.exists(){"user config"}else{"defaults"},"effective":{"semantic":cfg.semantic&&!offline,"tracking":cfg.tracking,"model":cfg.provider.driver().model(),"candidate_limit":cfg.candidate_limit.min(cfg.provider.driver().capabilities().max_candidates),"response_cache":cfg.provider.driver().capabilities().cacheable,"transport":cfg.provider.driver().connection(&cfg,None).ok().map(|c|format!("{:?}",c.transport))},"overrides":{"offline":offline},"credential":credential_status(&cfg),"automatic_quality_approved":false,"provider_live_test":"not run","proxy":cfg.proxy})).unwrap());
             } else {
                 println!(
                     "{}: {}",
@@ -1453,6 +1461,12 @@ fn run() -> Result<()> {
                 Ok(())
             }
             CredentialCommand::Set => {
+                if !paths.load()?.provider.needs_credentials() {
+                    return Err(Error(
+                        2,
+                        "selected provider does not use credentials".into(),
+                    ));
+                }
                 let _ = tty()?;
                 let fingerprint = paths.fingerprint()?;
                 let cfg = paths.load()?;
@@ -1465,6 +1479,12 @@ fn run() -> Result<()> {
                 Ok(())
             }
             CredentialCommand::Delete { apply } => {
+                if !paths.load()?.provider.needs_credentials() {
+                    return Err(Error(
+                        2,
+                        "selected provider does not use credentials".into(),
+                    ));
+                }
                 if apply {
                     let _credential_lock = paths.credential_lock(true)?;
                     paths.rotate_credential_epoch()?;
@@ -1482,6 +1502,29 @@ fn run() -> Result<()> {
             }
         },
         Some(Command::Config { action }) => config(&paths, action, offline),
+        Some(Command::ProviderCheck { json: machine }) => {
+            if offline {
+                return Err(Error(
+                    2,
+                    "provider-check is unavailable in offline mode".into(),
+                ));
+            }
+            let cfg = paths.load()?;
+            let report = j_jump::adapter::diagnose(&cfg)?;
+            if machine {
+                println!("{}", report);
+            } else {
+                println!(
+                    "{}: {}",
+                    cfg.provider.label(),
+                    ui::tr(
+                        "local service checks passed. Use --json for diagnostic details. Directory quality is not measured.",
+                        "本机服务检查通过；使用 --json 查看详细结果。尚未测量目录选择质量。"
+                    )
+                );
+            }
+            Ok(())
+        }
         Some(Command::Doctor { json }) => {
             let cfg = paths.load();
             // A store that opens but cannot be read is not healthy: exercise the
@@ -1530,7 +1573,7 @@ fn run() -> Result<()> {
             if json {
                 println!(
                     "{}",
-                    json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"configuration":if config_ok{"ok"}else{"invalid"},"store":if store_ok{"ok"}else{"unavailable"},"cause":cause,"provider":cfg.as_ref().ok().map(|c| c.provider.id()),"provider_configured":cfg.as_ref().is_ok_and(|c|c.semantic),"environment_ready":ready,"credential":cfg.as_ref().ok().map(credential_status),"provider_test":"not run","shell_activation":"not verified by child process","offline":offline,"automatic_quality_approved":false,"next":next})
+                    json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"configuration":if config_ok{"ok"}else{"invalid"},"store":if store_ok{"ok"}else{"unavailable"},"cause":cause,"provider":cfg.as_ref().ok().map(|c| c.provider.id()),"provider_configured":cfg.as_ref().is_ok_and(|c|c.semantic),"request_configuration_ready":cfg.as_ref().is_ok_and(ui::credential_available),"environment_ready":ready,"credential":cfg.as_ref().ok().map(credential_status),"provider_test":"not run","credential_required":cfg.as_ref().is_ok_and(|c|c.provider.needs_credentials()),"shell_activation":"not verified by child process","offline":offline,"automatic_quality_approved":false,"next":next})
                 );
             } else {
                 println!("J-Jump {}", env!("CARGO_PKG_VERSION"));

@@ -162,7 +162,7 @@ class UXTasks(unittest.TestCase):
     def test_setup_invalid_input_retry_back_and_save(self):
         with self.process('setup') as t:
             t.until(b'Semantic provider'); t.send('jve\n')
-            t.until(b'choose off, jev or clef-flash'); t.send('jev\n')
+            t.until(b'choose off or jev|clef-flash|tev1'); t.send('jev\n')
             t.until(b'Network permission'); t.send('always\n')
             t.until(b'Fields'); t.send('invalid\n')
             t.until(b'privacy expects'); t.send('b\n')
@@ -364,7 +364,7 @@ class UXTasks(unittest.TestCase):
                             expected = self.target if choose and mode != 'completion' else self.cwd
                             self.assertIn(('WHERE:' + str(expected)).encode(), t.output)
                             self.assertEqual(len(connections), 1)
-                            with sqlite3.connect(self.state / 'cache/semantic-cache.db') as db:
+                            with sqlite3.connect(self.state / 'cache/semantic-drivers.db') as db:
                                 self.assertEqual(db.execute('select count(*) from dispatch').fetchone()[0], 1)
 
 

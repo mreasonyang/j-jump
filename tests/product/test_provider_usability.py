@@ -123,7 +123,7 @@ class SetupUsability(unittest.TestCase):
                             self.assertNotIn(b'synthetic-token', t.output)
                         finally:
                             t.close()
-                        self.assertFalse((self.state / 'cache/semantic-cache.db').exists())
+                        self.assertFalse((self.state / 'cache/semantic-drivers.db').exists())
                         self.env[name] = SECRET
                         self.assertTrue(json.loads(self.cli('doctor', '--json').stdout)['environment_ready'])
                         self.assertEqual(before, self.config.read_bytes())
@@ -132,7 +132,7 @@ class SetupUsability(unittest.TestCase):
         self.env['J_JUMP_LANG'] = 'zh'
         self.cli('config', 'set', 'tracking', 'off')
         before = self.config.read_bytes()
-        for key, value, expected in (('provider', 'clef', '请选择 jev 或 clef-flash'),
+        for key, value, expected in (('provider', 'clef', '请选择 jev|clef-flash|tev1'),
                                      ('cloudflare_account_id', 'wrong', '32 位十六进制')):
             result = subprocess.run([str(first.BIN), 'config', 'set', key, value],
                                     env=self.env, cwd=self.cwd, capture_output=True, timeout=5)
@@ -250,7 +250,7 @@ class InteractionUsability(unittest.TestCase):
                                 t.send_and_wait_prompt('\r'); t.cancelled()
                                 self.assertEqual(frames, [])
                                 self.where(t, self.cwd, 'DECLINED')
-                                self.assertFalse((self.state / 'cache/semantic-cache.db').exists())
+                                self.assertFalse((self.state / 'cache/semantic-drivers.db').exists())
                                 t.send('ji notlexical\r'); t.until(b'[y/N]'); t.send('y\r')
                                 t.until(('Empty/q: cancel' if language == 'en' else '空输入/q 取消').encode())
                                 self.assertIn(('suggestion: first; choose explicitly' if language == 'en' else
@@ -300,7 +300,7 @@ class InteractionUsability(unittest.TestCase):
                             self.where(t, self.target, 'OFFLINE_CWD')
                             self.assertNotIn(b'J5:', t.output)
                             self.assertNotIn(b'[y/N]', t.output)
-                        self.assertFalse((self.state / 'cache/semantic-cache.db').exists())
+                        self.assertFalse((self.state / 'cache/semantic-drivers.db').exists())
 
 
 if __name__ == '__main__':

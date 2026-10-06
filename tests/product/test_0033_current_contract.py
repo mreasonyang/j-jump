@@ -116,7 +116,7 @@ class CurrentContract(unittest.TestCase):
 
     def runtime(self):
         keys = ('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy', 'REQUEST_METHOD')
-        profile = os.fsencode(self.config()) + b'\0' + os.fsencode(self.state / 'cache') + b'\0adapter-v5'
+        profile = os.fsencode(self.config()) + b'\0' + os.fsencode(self.state / 'cache') + b'\0adapter-v6'
         profile += b''.join(k.encode() + b'\0' + self.env.get(k, '').encode() + b'\0' for k in keys)
         return pathlib.Path('/private/tmp' if os.uname().sysname == 'Darwin' else '/tmp') / ('jj-' + str(os.geteuid()) + '-' + hashlib.sha256(profile).hexdigest()[:24])
 
@@ -162,7 +162,7 @@ class CurrentContract(unittest.TestCase):
                         body = json.dumps(body)
                         status = {'error': 'auth', 'rate_limit': 'rate_limit', 'timeout': 'timeout',
                                   'transport': 'transport'}.get(outcome, 'ok')
-                        reply = {'version': 5, 'id': frame['id'], 'status': status,
+                        reply = {'version': 6, 'id': frame['id'], 'status': status,
                                  'body': 'not-json' if outcome == 'invalid' else body}
                         if outcome == 'binding': reply['id'] = 'bad-binding'
                         data = json.dumps(reply).encode(); conn.sendall(struct.pack('>I', len(data)) + data)
@@ -176,7 +176,7 @@ class CurrentContract(unittest.TestCase):
             shutil.rmtree(runtime)
 
     def assert_dispatch(self):
-        with sqlite3.connect(self.state / 'cache/semantic-cache.db') as db:
+        with sqlite3.connect(self.state / 'cache/semantic-drivers.db') as db:
             self.assertLessEqual(db.execute('SELECT count(*) FROM dispatch').fetchone()[0], 1)
 
     def test_provider_failures_never_switch_route_in_three_shells(self):
@@ -231,7 +231,7 @@ class CurrentContract(unittest.TestCase):
             with self.process('--force-semantic', 'query', 'alpha') as t:
                 t.until(b'J7:'); self.assertNotIn(b'Choose a directory', t.output)
             with self.assertRaises(socket.timeout): proxy.accept()
-            with sqlite3.connect(self.state / 'cache/semantic-cache.db') as db:
+            with sqlite3.connect(self.state / 'cache/semantic-drivers.db') as db:
                 self.assertEqual(db.execute('SELECT count(*) FROM dispatch').fetchone()[0], 0)
         finally:
             proxy.close(); shutil.rmtree(runtime)

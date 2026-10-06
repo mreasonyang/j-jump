@@ -50,7 +50,7 @@ jjump init fish | source
 
 ## 保存不等于可以联网
 
-语义开关、服务商、许可、发送字段和凭证分别配置。服务商默认为 `jev`，可选 `clef-flash`。默认 off、ask、strict；没有请求次数设置或累计上限。选择 Jev 后会直接进入 API Key 设置；选择 Clef-Flash 则先填写 Cloudflare Account ID，再设置 API Token：隐藏输入新 Key、保留已配置来源、使用已检测到的环境变量，或跳过。Key 仅在内存草稿中，完成向导时写入系统凭证库；取消或恢复默认会丢弃待保存 Key。凭证库写入失败会保留草稿，可在向导内重试或编辑。也可以暂不配凭证，页面会列出阻断原因；不会为了验证而自动请求。
+语义开关、服务商、许可、发送字段和凭证分别配置。服务商默认为 `jev`，可选 `clef-flash` 和本机 `tev1`。默认 off、ask、strict；没有请求次数设置或累计上限。选择 Jev 后会直接进入 API Key 设置；选择 Clef-Flash 则先填写 Cloudflare Account ID，再设置 API Token：隐藏输入新 Key、保留已配置来源、使用已检测到的环境变量，或跳过。Key 仅在内存草稿中，完成向导时写入系统凭证库；取消或恢复默认会丢弃待保存 Key。凭证库写入失败会保留草稿，可在向导内重试或编辑。也可以暂不配凭证，页面会列出阻断原因；不会为了验证而自动请求。
 
 - ask：每次请求前问；always：允许按所选隐私规则联网，不再逐次询问。
 - strict：查询及候选名；balanced：增加有限上下文；full：允许路径。名称/查询本身也可能敏感。
@@ -71,7 +71,7 @@ jjump config set language zh
 
 普通 j 本地有有效词法匹配就直接跳、零模型请求；只有真正无匹配才可能 Jev。带查询 ji/Space-Tab 可请求 Jev；裸 ji/空补全为本地。强制语义仅显式 `--force-semantic` 或 `semantic_route=force` 开启，默认 local_first。候选为已访问库存中的作用域/词法候选，不爬盘、不读源码。
 
-请求遵循系统/环境代理，单次交互总期限10秒、连接上限3秒。等待约0.9秒后 Enter 进入本地 picker，W 继续同一时限；Enter 本身不会选择或 cd，迟到结果不会接管选择。超时、服务失败、响应非法或无可靠建议时停止，不选目录、不换传输或自动打开本地选择器。Jev 仅通过 adapter 请求；可执行 `jjump --offline query --interactive` 主动浏览本地。
+云端请求遵循系统/环境代理；本机 Tev1 只直连 loopback，单次交互总期限10秒、连接上限3秒。等待约0.9秒后 Enter 进入本地 picker，W 继续同一时限；Enter 本身不会选择或 cd，迟到结果不会接管选择。超时、服务失败、响应非法或无可靠建议时停止，不选目录、不换传输或自动打开本地选择器。Jev 仅通过 adapter 请求；可执行 `jjump --offline query --interactive` 主动浏览本地。
 
 默认使用内置编号模式。显式设置 `J_JUMP_PICKER=fzf` 才启用本地搜索/上下键/翻页；fzf 缺失、执行失败或终端不支持时直接报错。可显式改用 `J_JUMP_PICKER=numbered`。编号模式 n 下一页、p 上一页、v N 查看完整路径、编号选择、空输入/q取消；无效编号可重输。40列下保留路径尾部，完整输出路径和身份校验不受缩写影响。显式本地查询没有词法匹配时说明没有匹配；裸 `ji` 浏览全部允许的历史目录。启用 Jev 时的语义 shortlist 可以包含非词法候选，与本地查询不同。
 
@@ -95,7 +95,7 @@ recover 不修复历史库，也无法替换被安全策略拒绝的符号链接
 
 默认从 LC_ALL、LC_MESSAGES、LANG 选择中/英文，未知 locale 用英文。`language=auto/en/zh` 为持久偏好，J_JUMP_LANG 覆盖它。核心引导/帮助/诊断与常见错误提供双语信息；技术键名、命令、稳定错误码、JSON和查询不翻译。Jev等待文案保持英文。NO_COLOR 下不依赖颜色；编号界面是逐行文本。
 
-开发期只接受当前完整格式：配置 schema 3、访问库 schema 4、备份 schema 3、缓存 schema 3。配置 schema 3 新增默认值字段 provider、cloudflare_account_id、cloudflare_credential，原有完整 schema 3 配置可直接读取，默认仍为 Jev；不重写用户配置。旧格式被拒绝且保持原样；不自动转换/迁移，也不提供旧版降级路径。需要独立文件状态时显式指定绝对路径 J_JUMP_HOME；它只重定向配置、访问库和缓存，不隔离系统凭证。所有文件 profile 按服务商共用当前 OS 用户的凭证项：Jev 为 `j-jump.jev` / `typesafe-api-key`，Cloudflare 为 `j-jump.cloudflare` / `workers-ai-api-token`；凭证测试还须隔离 OS 服务。Linux 使用 XDG 路径，macOS 使用 Application Support/Caches；配置优先级为 `--config`、J_JUMP_CONFIG、默认路径，不读取工作目录中的项目配置。
+开发期只接受当前完整格式：配置 schema 3、访问库 schema 4、备份 schema 3、语义状态 schema 4。配置 schema 3 包含默认值字段 provider、cloudflare_account_id、cloudflare_credential，以及经过注册表校验的 providers 设置组，原有完整 schema 3 配置可直接读取，默认仍为 Jev；不重写用户配置。旧格式被拒绝且保持原样；不自动转换/迁移，也不提供旧版降级路径。需要独立文件状态时显式指定绝对路径 J_JUMP_HOME；它只重定向配置、访问库和缓存，不隔离系统凭证。所有文件 profile 按服务商共用当前 OS 用户的凭证项：Jev 为 `j-jump.jev` / `typesafe-api-key`，Cloudflare 为 `j-jump.cloudflare` / `workers-ai-api-token`；凭证测试还须隔离 OS 服务。Linux 使用 XDG 路径，macOS 使用 Application Support/Caches；配置优先级为 `--config`、J_JUMP_CONFIG、默认路径，不读取工作目录中的项目配置。
 
 系统凭证、锁定/拒绝提示、完整平台覆盖、真实 Jev 质量及新手理解均须分别验收。见 [平台与发布范围](RELEASE.md)，不把系统凭证夹具或某个版本的测试泛化为全部环境通过。
 
@@ -108,7 +108,7 @@ recover 不修复历史库，也无法替换被安全策略拒绝的符号链接
 | credential | environment | 环境来源优先；setup 可选择系统存储 |
 | candidate_limit |254| 按披露名称/上下文分组的上限，可设1–254；单问题、64KiB 内按优先顺序截取；不截断本地词法列表 |
 | semantic_route | local_first | 普通 j 优先本地；force 为显式选项 |
-| proxy | system | 系统/环境网络路径，不提供旧直连模式 |
+| proxy | system | 云端使用系统/环境网络路径；本机模型强制 loopback 直连 |
 | language | auto | 跟随 locale，可选 en/zh |
 
 ```sh
@@ -125,3 +125,22 @@ jjump credential delete              # 仅预览
 删除操作加 `--apply` 才执行；restore 默认只验证，加 `--apply` 才替换当前访问库。备份父目录须私有，恢复仅支持当前格式；无效备份不会替换现有访问库。访问清理会使旧快照/缓存绑定失效，之后真实访问仍可重新记录。cache clear 不删除访问记录或凭证，也没有需要保留的累计请求计数。data clear 不删除 Shell/第三方历史、备份或凭证。删除 OS key 不会撤销服务端账户密钥或修改环境变量。
 
 `jjump explain QUERY` 显示排序及实际选择；`--json` 输出机器诊断。编号选择器可输入文字筛选、编号选择、v N 查看路径及 n/p 翻页。有效 Jev 建议的所有本地目录先列出，仍须明确选择；取消静默返回130。`history prune` 先预览，`--apply` 删除已确认缺失的访问统计，不删除目录。
+
+
+## 本机模型与当前语义状态
+
+`jjump setup` 选择 `tev1` 后填写 Ollama 地址，跳过 Key 步骤。命令行可用 `config set ollama_url http://127.0.0.1:11434`。
+地址只允许本机 `127.0.0.1` 或 `[::1]` 的 HTTP origin，不允许远程主机、URL 凭据、路径、查询或片段。
+Ollama 至少 0.35，模型固定 `tev1:4b`，需兼容 GGUF；用户负责安装、下载和启动。
+
+`jjump provider-check --json` 是本机模型的显式连接检查：两条元数据请求加一条合成推理，最多 10 秒。
+它不发送访问历史，不测量目录质量；默认 doctor 与 setup 不调用它。检查失败保留设置，可按错误修复服务/模型后重试。
+`credential status` 显示来源 none；set/delete 对不需要凭据的 Provider 拒绝操作，不接触其他服务的凭据。
+
+candidate_limit 的保存值仍为 1–254；实际 Tev1 请求最多 23 个目录组加 none，并受保守的 1,600 字节序列化上下文预算约束。
+预算为模型模板和评分位置留出余量，超限减少候选；查询本身不会被截断。preview 展示实际发送结果。
+Tev1 不持久缓存答案，避免模型标签换权重后使用旧结果；云端缓存仍绑定服务、端点、模型、认证身份和请求快照。
+熔断按服务身份隔离，同一服务的不同查询共享故障计数。
+
+当前语义状态使用 `semantic-drivers.db`（schema 4）。此前 `semantic-cache.db` 保留原样且不读取、迁移或复用，
+当前 cache/data clear 只清理当前状态文件；清理不等于安全擦除。访问库和系统凭据不迁移。

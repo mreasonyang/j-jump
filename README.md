@@ -16,7 +16,7 @@
 <p align="center"><img src=".github/assets/demo.gif" alt="J-Jump demo: j pay jumps by name; ji my cv finds resumes with Jev; ji 税务 finds taxes" width="760"></p>
 
 You never typed "resumes" or "taxes". J-Jump remembers the folders you visit, takes you to the right one by a few
-letters of its name and, with the optional Jev semantic model, finds it by what it means, even in another language.
+letters of its name and, with an optional semantic model, finds it by what it means, even in another language.
 
 ## Why J-Jump
 
@@ -86,9 +86,9 @@ see the ranking.
 **In the picker:** type a number to jump, `n`/`p` to change page, `v 3` to see a full path, and Enter or `q` to cancel.
 If you prefer fuzzy filtering, install [fzf](https://github.com/junegunn/fzf) and set `export J_JUMP_PICKER=fzf`.
 
-## Jev and Clef-Flash: find folders by meaning
+## Semantic providers: find folders by meaning
 
-Jev and Cloudflare Clef-Flash are optional semantic model services. Semantic help is **off by default**, and local navigation never needs a provider.
+Jev, Cloudflare Clef-Flash and local Ollama Tev1 4B are optional semantic providers. Semantic help is **off by default**, and local navigation never needs a provider.
 
 **Turn it on** with `jjump setup`: choose Jev and paste your key. Input is hidden, and the key is saved to your OS
 credential store, never to a file. Alternatively, set `TYPESAFE_API_KEY` in your environment and run
@@ -102,7 +102,7 @@ To turn off cloud requests, choose `off` or run `jjump config set semantic off`.
 - `j pay` with a local match jumps immediately and never contacts the provider. Only when nothing matches locally may it ask the provider.
 - `ji QUERY` and <kbd>Tab</kbd> completion with a query ask the selected provider when semantic help is enabled. A bare `ji`, `--offline` and
   `J_JUMP_OFFLINE=1` stay local.
-- The suggestion is marked `[Jev]` or `[Clef-Flash]` at the top of the list, and you still choose. Cancelling never picks anything.
+- The suggestion is marked with the selected provider name at the top of the list, and you still choose. Cancelling never picks anything.
 - With the default `consent ask`, J-Jump confirms before each request. `jjump config set consent always` skips that.
   The selected service may charge per request.
 - A request waits up to 10 seconds. While waiting, press Enter to switch to local choices or `W` to keep waiting.
@@ -130,6 +130,37 @@ previously saved provider credentials are kept. Requests use the [official Worke
 with the `clef-flash` model. Privacy, consent, offline mode and explicit selection apply to both providers; suggestions
 are labelled with the selected provider. Cached responses are bound to provider, account and credential. Failed requests
 never switch providers automatically. `doctor` checks configuration locally; it does not verify API permissions or test cloud inference.
+
+### Choose local Tev1 4B
+
+Source version 0.0.39 adds `tev1`. Run `jjump setup`, select `tev1`, and keep the default
+`http://127.0.0.1:11434` or enter your local Ollama port. No API key is requested or read.
+Install and start [Ollama 0.35 or later](https://ollama.com/download) and provision compatible
+`tev1:4b` **GGUF** weights yourself; System One does not support MLX/Safetensors weights.
+J-Jump never installs, starts or downloads Ollama/models automatically.
+
+```sh
+jjump config set provider tev1
+jjump config set ollama_url http://127.0.0.1:11434
+jjump provider-check --json
+jjump config set semantic on
+```
+
+`provider-check` explicitly checks the local runtime version, model metadata and one synthetic decision;
+it can load the model. Passing this check does not measure directory-selection quality.
+`doctor`, setup, status and preview remain offline. `--offline` also disables local model requests.
+Loopback IPv4/IPv6 literals are accepted; remote hosts, proxies, redirects and Authorization headers are not used.
+Local requests retain the same consent, privacy and explicit-selection rules as cloud requests.
+
+Tev1 uses at most 23 directory groups plus `none`. A conservative context budget may reduce this further;
+long queries or metadata can be refused rather than truncated. Compact selection distributes slots across
+query evidence, workspace scope and generic/informative names. `preview` shows the exact final request.
+This bounded shortlist does not guarantee that every intended target is included.
+
+A request has the same 10-second deadline, including cold loading. The model is kept loaded for five minutes
+after a request and consumes local memory; manage its lifecycle with Ollama. Tev1 answers are not persistently
+cached because a local model tag can change weights. Provider outages are isolated from the other providers.
+There is no automatic provider fallback or automatic semantic jump.
 
 ### What the selected provider can see
 

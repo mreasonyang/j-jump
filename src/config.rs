@@ -10,32 +10,56 @@ use std::{
 
 pub const CANDIDATE_LIMIT_MAX: usize = 254;
 
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Provider {
-    #[default]
-    #[serde(rename = "jev")]
-    Jev,
-    #[serde(rename = "clef-flash")]
-    ClefFlash,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Provider(&'static str);
+impl Default for Provider {
+    fn default() -> Self {
+        Self::Jev
+    }
 }
 impl Provider {
+    pub(crate) const fn builtin(id: &'static str) -> Self {
+        Self(id)
+    }
+    pub fn parse(id: &str) -> Result<Self> {
+        crate::providers::find(id)
+            .map(|d| Self(d.descriptor().id))
+            .ok_or_else(|| {
+                Error(
+                    2,
+                    format!("provider expects {}", crate::providers::ids()).into(),
+                )
+            })
+    }
+    pub fn driver(self) -> &'static dyn crate::providers::ProviderDriver {
+        crate::providers::find(self.0).expect("validated registered provider")
+    }
     pub fn id(self) -> &'static str {
-        match self {
-            Self::Jev => "jev",
-            Self::ClefFlash => "clef-flash",
-        }
+        self.0
     }
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Jev => "Jev",
-            Self::ClefFlash => "Clef-Flash",
-        }
+        self.driver().descriptor().label
     }
     pub fn env_key(self) -> &'static str {
-        match self {
-            Self::Jev => "TYPESAFE_API_KEY",
-            Self::ClefFlash => "CLOUDFLARE_AUTH_TOKEN",
-        }
+        self.driver()
+            .descriptor()
+            .credential
+            .as_ref()
+            .and_then(|c| c.env.first().copied())
+            .unwrap_or("")
+    }
+    pub fn needs_credentials(self) -> bool {
+        self.driver().descriptor().credential.is_some()
+    }
+}
+impl Serialize for Provider {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str(self.id())
+    }
+}
+impl<'de> Deserialize<'de> for Provider {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        Self::parse(&String::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
 fn environment_source() -> String {
@@ -54,6 +78,8 @@ pub struct Config {
     pub cloudflare_account_id: String,
     #[serde(default = "environment_source")]
     pub cloudflare_credential: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub providers: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     pub tracking: bool,
     pub semantic: bool,
     pub consent: String,
@@ -73,6 +99,7 @@ impl Default for Config {
             provider: Provider::Jev,
             cloudflare_account_id: String::new(),
             cloudflare_credential: environment_source(),
+            providers: Default::default(),
             tracking: true,
             semantic: false,
             consent: "ask".into(),
@@ -342,25 +369,31 @@ impl Policy {
 
 impl Config {
     pub fn credential_source(&self) -> &str {
-        match self.provider {
-            Provider::Jev => &self.credential,
-            Provider::ClefFlash => &self.cloudflare_credential,
-        }
+        self.provider
+            .driver()
+            .descriptor()
+            .credential
+            .as_ref()
+            .map(|c| (c.source)(self))
+            .unwrap_or("none")
     }
     pub fn set_credential_source(&mut self, source: &str) {
-        match self.provider {
-            Provider::Jev => self.credential = source.into(),
-            Provider::ClefFlash => self.cloudflare_credential = source.into(),
+        if let Some(c) = &self.provider.driver().descriptor().credential {
+            (c.set_source)(self, source);
         }
     }
     pub fn validate(&self) -> Result<()> {
+        crate::providers::validate_settings(self).map_err(|_| {
+            Error(
+                7,
+                "unsupported provider configuration; run config recover to preview a reset".into(),
+            )
+        })?;
         if !["auto", "en", "zh"].contains(&self.language.as_str()) {
             return Err(Error(7, "language expects auto, en or zh".into()));
         }
         if !["environment", "system"].contains(&self.credential.as_str())
             || !["environment", "system"].contains(&self.cloudflare_credential.as_str())
-            || (!self.cloudflare_account_id.is_empty()
-                && !crate::provider::valid_account_id(&self.cloudflare_account_id))
             || self.schema_version != 3
             || !["ask", "always"].contains(&self.consent.as_str())
             || !["strict", "balanced", "full"].contains(&self.privacy.as_str())

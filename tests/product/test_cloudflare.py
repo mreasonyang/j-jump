@@ -119,7 +119,7 @@ class Cloudflare(unittest.TestCase):
                     self.assertNotIn(SECRET.encode(), t.output)
                 finally:
                     t.close()
-                self.assertFalse((Path(self.env['J_JUMP_HOME']) / 'cache/semantic-cache.db').exists())
+                self.assertFalse((Path(self.env['J_JUMP_HOME']) / 'cache/semantic-drivers.db').exists())
         status = json.loads(self.cli('doctor', '--json',
                                     extra={'CLOUDFLARE_ACCOUNT_ID': ''}).stdout)
         self.assertTrue(status['environment_ready'])

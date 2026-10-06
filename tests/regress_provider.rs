@@ -351,7 +351,7 @@ fn paths_fixture() -> (tempfile::TempDir, Paths) {
     (temp, paths)
 }
 fn cache_path(paths: &Paths) -> PathBuf {
-    paths.cache.join("semantic-cache.db")
+    paths.cache.join("semantic-drivers.db")
 }
 fn user_version(paths: &Paths) -> i64 {
     let db = rusqlite::Connection::open(cache_path(paths)).unwrap();
@@ -363,7 +363,7 @@ fn user_version(paths: &Paths) -> i64 {
 fn cache_creation_stamps_the_schema_identity() {
     let (_t, paths) = paths_fixture();
     drop(ProviderState::open(&paths).unwrap());
-    assert_eq!(user_version(&paths), 3);
+    assert_eq!(user_version(&paths), 4);
 }
 
 #[test]

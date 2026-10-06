@@ -46,7 +46,7 @@ class SimpleSetup(unittest.TestCase):
                 done = ('Enter: done' if lang == 'en' else 'Enter 完成').encode()
                 t.until(done); t.send('\n')
                 t.until(done)
-                self.assertIn(('names and paths are not sent to Jev' if lang == 'en' else '名称、路径不会发送给 Jev').encode(), t.output)
+                self.assertIn(('names and paths are not sent to the selected provider' if lang == 'en' else '名称、路径不会发送给所选服务').encode(), t.output)
                 self.assertIn(('subfolders' if lang == 'en' else '子文件夹').encode(), t.output)
                 self.assertIn(('File contents are never uploaded' if lang == 'en' else '不会上传文件内容').encode(), t.output)
                 self.assertIn(b'/work/', t.output)

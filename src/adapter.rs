@@ -1,4 +1,4 @@
-//! Private, lazy Jev transport. Policy, credential ownership and response validation stay in the caller.
+//! Private, lazy semantic transport. Policy, credential ownership and response validation stay in the caller.
 use crate::{
     Error, Result,
     config::{Paths, private_dir},
@@ -21,7 +21,70 @@ use std::{
 };
 use zeroize::Zeroize;
 
-const VERSION: u8 = 5;
+fn local_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()
+        .map_err(|_| Error(5, "local HTTP client unavailable".into()))
+}
+
+/// Explicit local service check. Offline doctor never calls this. Only static
+/// metadata and a synthetic decision are sent, through the driver's transport.
+pub fn diagnose(cfg: &crate::config::Config) -> Result<serde_json::Value> {
+    let driver = cfg.provider.driver();
+    // The driver owns metadata and probe semantics. The adapter only executes
+    // bounded requests on the already validated local origin.
+    let mut responses = Vec::new();
+    let deadline = Instant::now() + INTERACTIVE_DEADLINE;
+    let mut step = driver.diagnostic(&responses)?;
+    let connection = driver.connection(cfg, None)?;
+    if connection.transport != crate::providers::Transport::Loopback {
+        return Err(Error(5, "diagnostic transport is not local".into()));
+    }
+    let origin = reqwest::Url::parse(&connection.url)
+        .map_err(|_| Error(5, "invalid diagnostic origin".into()))?;
+    let client = local_client()?;
+    loop {
+        match step {
+            crate::providers::Diagnostic::Complete(mut report) => {
+                report["provider"] = cfg.provider.id().into();
+                report["requests"] = responses.len().into();
+                return Ok(report);
+            }
+            crate::providers::Diagnostic::Request { path, body } => {
+                if responses.len() >= 8
+                    || !path.starts_with('/')
+                    || path.starts_with("//")
+                    || body.as_ref().is_some_and(|b| b.len() > 65536)
+                {
+                    return Err(Error(5, "diagnostic request bounds".into()));
+                }
+                let url = origin
+                    .join(path)
+                    .map_err(|_| Error(5, "invalid diagnostic path".into()))?;
+                if url.origin() != origin.origin() {
+                    return Err(Error(5, "diagnostic origin changed".into()));
+                }
+                let request = if let Some(body) = body {
+                    client
+                        .post(url)
+                        .header("Content-Type", "application/json")
+                        .body(body)
+                } else {
+                    client.get(url)
+                };
+                let raw = read_response(request.timeout(remaining(deadline)?).send())?;
+                responses.push(crate::provider::strict_json(raw.as_bytes())?);
+                step = driver.diagnostic(&responses)?;
+                remaining(deadline)?;
+            }
+        }
+    }
+}
+
+const VERSION: u8 = 6;
 // A runtime directory may only be reclaimed once it has had no live owner for
 // at least this long. A shorter window risks racing a concurrent invocation
 // that has created its directory but not yet taken its instance lock.
@@ -412,7 +475,7 @@ fn read_frame(stream: &mut UnixStream) -> Result<Vec<u8>> {
 fn remaining(deadline: Instant) -> Result<Duration> {
     let d = deadline.saturating_duration_since(Instant::now());
     if d.is_zero() {
-        Err(Error(5, "Jev total request deadline elapsed".into()))
+        Err(Error(5, "Provider total request deadline elapsed".into()))
     } else {
         Ok(d)
     }
@@ -572,7 +635,7 @@ pub fn exchange_for(
     if id.len() != 32
         || fingerprint.len() > 128
         || credential_epoch.len() > 64
-        || account_id.len() > 32
+        || account_id.len() > 256
         || key.len() > 4096
         || payload.len() > 65536
     {
@@ -631,38 +694,38 @@ pub fn exchange_for(
                     "adapter request already in flight; browse locally: jjump --offline query --interactive".into(),
                 ),
                 "settings_busy" => Error(5, "J-Jump settings were changing; retry".into()),
-                "credential_busy" => Error(5, "the Jev key was changing; retry".into()),
+                "credential_busy" => Error(5, "the provider key was changing; retry".into()),
                 "connect" => Error(
                     5,
-                    "Jev adapter connection failed; browse locally: jjump --offline query --interactive".into(),
+                    "Provider adapter connection failed; browse locally: jjump --offline query --interactive".into(),
                 ),
                 "connect_timeout" => Error(
                     5,
-                    "Jev adapter connection timed out; browse locally: jjump --offline query --interactive".into(),
+                    "Provider adapter connection timed out; browse locally: jjump --offline query --interactive".into(),
                 ),
                 "timeout" => Error(
                     5,
-                    "Jev adapter response timed out; browse locally: jjump --offline query --interactive".into(),
+                    "Provider adapter response timed out; browse locally: jjump --offline query --interactive".into(),
                 ),
                 "body_timeout" => Error(
                     5,
-                    "Jev adapter response body timed out; browse locally: jjump --offline query --interactive".into(),
+                    "Provider adapter response body timed out; browse locally: jjump --offline query --interactive".into(),
                 ),
                 "body" => Error(
                     5,
-                    "Jev adapter response body failed; browse locally: jjump --offline query --interactive".into(),
+                    "Provider adapter response body failed; browse locally: jjump --offline query --interactive".into(),
                 ),
                 "transport" => Error(
                     5,
-                    "Jev adapter transport failed; browse locally: jjump --offline query --interactive".into(),
+                    "Provider adapter transport failed; browse locally: jjump --offline query --interactive".into(),
                 ),
-                "auth" => Error(5, "Jev authentication rejected; browse locally: jjump --offline query --interactive".into()),
+                "auth" => Error(5, "Provider authentication rejected; browse locally: jjump --offline query --interactive".into()),
                 "rate_limit" => Error(
                     5,
-                    "Jev rate limit or quota reached; browse locally: jjump --offline query --interactive".into(),
+                    "Provider rate limit or quota reached; browse locally: jjump --offline query --interactive".into(),
                 ),
-                "rejected" => Error(5, "Jev request rejected; browse locally: jjump --offline query --interactive".into()),
-                _ => Error(5, "Jev adapter request failed; browse locally: jjump --offline query --interactive".into()),
+                "rejected" => Error(5, "Provider request rejected; browse locally: jjump --offline query --interactive".into()),
+                _ => Error(5, "Provider adapter request failed; browse locally: jjump --offline query --interactive".into()),
             });
         }
         Ok(reply.body.into_bytes())
@@ -728,7 +791,7 @@ fn read_response(
         _ => {}
     }
     if response.content_length().is_some_and(|n| n > 262144) {
-        return Err(Error(5, "Jev response exceeds limit".into()));
+        return Err(Error(5, "Provider response exceeds limit".into()));
     }
     let mut body = Vec::new();
     response.take(262145).read_to_end(&mut body).map_err(|e| {
@@ -742,9 +805,9 @@ fn read_response(
         }
     })?;
     if body.len() > 262144 {
-        return Err(Error(5, "Jev response exceeds limit".into()));
+        return Err(Error(5, "Provider response exceeds limit".into()));
     }
-    String::from_utf8(body).map_err(|_| Error(5, "Jev response encoding invalid".into()))
+    String::from_utf8(body).map_err(|_| Error(5, "Provider response encoding invalid".into()))
 }
 /// Ask every other helper this user runs to stop: helpers are namespaced by
 /// profile and proxy environment, so one started under another proxy setting is
@@ -893,12 +956,19 @@ fn process(
             } if *version == VERSION => {
                 let id = id.clone();
                 let _policy_lock = shared_lock(|| paths.policy_lock())?;
-                let _credential_lock = shared_lock(|| paths.credential_lock(false))?;
+                let cfg = paths.load()?;
+                let authenticated = cfg.provider.needs_credentials();
+                let _credential_lock = if authenticated {
+                    Some(shared_lock(|| paths.credential_lock(false))?)
+                } else {
+                    None
+                };
                 let clock_remaining = deadline_tick_ns.saturating_sub(monotonic_ns()?);
                 if id.len() != 32
                     || *remaining_ms == 0
                     || *remaining_ms > INTERACTIVE_DEADLINE.as_millis() as u64
-                    || key.is_empty()
+                    || (authenticated && key.is_empty())
+                    || (!authenticated && (!key.is_empty() || credential_epoch != "none"))
                     || key.len() > 4096
                     || payload.len() > 65536
                 {
@@ -914,7 +984,7 @@ fn process(
                     key.zeroize();
                     return Err(Error(5, "adapter fingerprint".into()));
                 }
-                if paths.credential_epoch()? != *credential_epoch {
+                if authenticated && paths.credential_epoch()? != *credential_epoch {
                     key.zeroize();
                     return Err(Error(5, "adapter credential".into()));
                 }
@@ -923,7 +993,13 @@ fn process(
                     key.zeroize();
                     return Err(Error(5, "adapter policy".into()));
                 }
-                let selected_endpoint = crate::provider::endpoint(cfg.provider, account_id)?;
+                let connection = cfg.provider.driver().connection(&cfg, Some(account_id))?;
+                let selected_endpoint = connection.url;
+                let client = if connection.transport == crate::providers::Transport::Loopback {
+                    local_client()?
+                } else {
+                    client.clone()
+                };
                 if crate::provider::strict_json(payload.as_bytes())?["model"]
                     != crate::provider::model(cfg.provider)
                     && endpoint == crate::provider::ENDPOINT
@@ -991,9 +1067,13 @@ fn process(
                     detached.clone(),
                 );
                 std::thread::spawn(move || {
-                    let response = http
-                        .post(&url)
-                        .bearer_auth(&secret)
+                    let request = http.post(&url);
+                    let request = if authenticated {
+                        request.bearer_auth(&secret)
+                    } else {
+                        request
+                    };
+                    let response = request
                         .header("Content-Type", "application/json")
                         .timeout(request_budget)
                         .body(body)
@@ -1287,7 +1367,7 @@ mod tests {
         paths.save(&cfg, "absent").unwrap();
         let fingerprint = paths.fingerprint().unwrap();
         drop(crate::provider::ProviderState::open(&paths).unwrap());
-        let db = rusqlite::Connection::open(paths.cache.join("semantic-cache.db")).unwrap();
+        let db = rusqlite::Connection::open(paths.cache.join("semantic-drivers.db")).unwrap();
         for n in 0..2 {
             db.execute(
                 "INSERT INTO dispatch VALUES(?1,'MayHaveSent',?2)",
@@ -1731,7 +1811,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error.1,
-            "Jev adapter response timed out; browse locally: jjump --offline query --interactive"
+            "Provider adapter response timed out; browse locally: jjump --offline query --interactive"
         );
         assert!(started.elapsed() < Duration::from_millis(350));
         task.join().unwrap();
@@ -1783,8 +1863,8 @@ mod tests {
         assert!(
             matches!(
                 error.1.as_ref(),
-                "Jev adapter response body timed out; browse locally: jjump --offline query --interactive"
-                    | "Jev adapter response body failed; browse locally: jjump --offline query --interactive"
+                "Provider adapter response body timed out; browse locally: jjump --offline query --interactive"
+                    | "Provider adapter response body failed; browse locally: jjump --offline query --interactive"
             ),
             "{}",
             error.1
@@ -1798,11 +1878,11 @@ mod tests {
         for (status, expected) in [
             (
                 401,
-                "Jev authentication rejected; browse locally: jjump --offline query --interactive",
+                "Provider authentication rejected; browse locally: jjump --offline query --interactive",
             ),
             (
                 429,
-                "Jev rate limit or quota reached; browse locally: jjump --offline query --interactive",
+                "Provider rate limit or quota reached; browse locally: jjump --offline query --interactive",
             ),
         ] {
             let (_temp, paths, fingerprint) = fixture();

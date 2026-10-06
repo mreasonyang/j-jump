@@ -38,7 +38,7 @@ class Terminal:
 class Alignment(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.root=pathlib.Path(self.tmp.name).resolve(); self.home=self.root/'home'; self.cwd=self.home/'neutral'; self.cwd.mkdir(parents=True); self.state=self.root/'state'
-        self.protocol=int(os.environ.get('JJ_FIXTURE_ADAPTER_VERSION','5'))
+        self.protocol=int(os.environ.get('JJ_FIXTURE_ADAPTER_VERSION','6'))
         self.env=dict(HOME=str(self.home),J_JUMP_HOME=str(self.state),PATH=str(BIN.parent)+':'+os.environ['PATH'],LANG='en_US.UTF-8',LC_ALL='en_US.UTF-8',J_JUMP_LANG='en',TERM='xterm',NO_COLOR='1',J_JUMP_PICKER='numbered')
         if os.environ.get('JJ_TEST_HTTPS_PROXY'): self.env['HTTPS_PROXY']=os.environ['JJ_TEST_HTTPS_PROXY']
     def tearDown(self): self.tmp.cleanup()
@@ -214,7 +214,7 @@ class Alignment(unittest.TestCase):
                 while len(connections)<2 and time.monotonic()-started<.3: second.drain(.01)
                 self.assertEqual(len(connections),2,second.output); self.assertLess(connections[1]-started,.3)
                 second.until(b'Checking with Jev'); second.send('\x03'); self.assertEqual(second.wait(),130)
-            with sqlite3.connect(self.state/'cache/semantic-cache.db') as db:
+            with sqlite3.connect(self.state/'cache/semantic-drivers.db') as db:
                 self.assertEqual(db.execute('SELECT failures FROM circuit').fetchone()[0],0)
                 self.assertEqual(db.execute('SELECT count(*) FROM cache').fetchone()[0],0)
                 self.assertEqual(db.execute('SELECT count(*) FROM dispatch').fetchone()[0],2)
@@ -227,7 +227,7 @@ class Alignment(unittest.TestCase):
         with sqlite3.connect(self.db()) as db: db.execute('UPDATE visits SET last_seen=?',(int(time.time())-91*86400,))
         with self.process('query','stale') as t:
             self.assertEqual(t.wait(),6); self.assertNotIn(b'Checking with Jev',t.output)
-        self.assertFalse((self.state/'cache/semantic-cache.db').exists())
+        self.assertFalse((self.state/'cache/semantic-drivers.db').exists())
     def test_busy_is_retryable_not_corrupt(self):
         self.visit(self.home/'code/alpha'); db=sqlite3.connect(self.db(),isolation_level=None); db.execute('BEGIN EXCLUSIVE')
         try: r=self.cli('query','alpha',code=7)
@@ -241,7 +241,7 @@ class Alignment(unittest.TestCase):
         with self.process('query','--interactive') as t:
             t.until(b'Empty/q: cancel'); self.assertNotIn(b'21. ',t.output); t.send('999\n'); t.until(b'Enter a number in')
             t.send('proj-023\n'); t.until(b'Matching'); t.send('1\n'); self.assertEqual(t.wait(),0); self.assertTrue(t.output.rstrip().endswith(os.fsencode(self.home/'proj-023')))
-        self.assertFalse((self.state/'cache/semantic-cache.db').exists())
+        self.assertFalse((self.state/'cache/semantic-drivers.db').exists())
     def test_no_quota_and_current_state(self):
         self.cli('config','set','semantic','on'); saved=json.loads(self.cli('config','show','--json').stdout)['saved']
         self.assertNotIn('request_limit',saved); self.assertEqual(saved['schema_version'],3); self.cli('config','set','request_limit','50',code=2)

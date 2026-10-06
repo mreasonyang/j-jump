@@ -1,9 +1,9 @@
 [package]
 name = "j-jump"
-version = "0.0.38"
+version = "0.0.39"
 edition = "2024"
 rust-version = "1.88"
-description = "Independent directory navigation with optional Jev or Cloudflare Clef-Flash suggestions"
+description = "Independent directory navigation with optional cloud or local model suggestions"
 license = "MIT"
 publish = false
 

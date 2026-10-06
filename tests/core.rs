@@ -406,7 +406,7 @@ fn provider_has_no_request_quota_and_cache_binds_generation() {
             Ok(serde_json::to_vec(&response()).unwrap())
         })
         .unwrap();
-    let db = rusqlite::Connection::open(paths.cache.join("semantic-cache.db")).unwrap();
+    let db = rusqlite::Connection::open(paths.cache.join("semantic-drivers.db")).unwrap();
     assert_eq!(
         db.query_row(
             "SELECT count(*) FROM sqlite_master WHERE name='budget'",
@@ -613,7 +613,7 @@ fn unreadable_cache_does_not_become_a_network_cache_miss() {
     let (_t, paths) = fixture();
     let (_f, req) = request_fixture();
     let state = provider::ProviderState::open(&paths).unwrap();
-    let db = rusqlite::Connection::open(paths.cache.join("semantic-cache.db")).unwrap();
+    let db = rusqlite::Connection::open(paths.cache.join("semantic-drivers.db")).unwrap();
     db.execute_batch("DROP TABLE cache").unwrap();
     let cfg = Config {
         semantic: true,

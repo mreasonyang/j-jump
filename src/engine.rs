@@ -394,6 +394,16 @@ pub fn grouped_shortlist(
     paths: &Paths,
     config: &Config,
 ) -> (Vec<Group>, bool) {
+    grouped_shortlist_in(all, lexical, terms, paths, config, None)
+}
+fn grouped_shortlist_in(
+    all: &[Candidate],
+    lexical: &[Candidate],
+    terms: &[String],
+    paths: &Paths,
+    config: &Config,
+    cwd: Option<&Path>,
+) -> (Vec<Group>, bool) {
     let policy = paths.policy(config, true);
     let source = if lexical.is_empty() { all } else { lexical };
     let mut order: Vec<(String, String)> = Vec::new();
@@ -418,7 +428,8 @@ pub fn grouped_shortlist(
         }
         entry.push(c.clone());
     }
-    let limit = config.candidate_limit;
+    let capabilities = config.provider.driver().capabilities();
+    let limit = config.candidate_limit.min(capabilities.max_candidates);
     let picked: Vec<(String, String)> = if !lexical.is_empty() {
         order
     } else {
@@ -456,11 +467,56 @@ pub fn grouped_shortlist(
                 }
             }
         }
-        with_terms
-            .into_iter()
-            .chain(merged)
-            .chain(generic_names)
-            .collect()
+        if capabilities.diverse_shortlist {
+            // Each tier receives slots before any tier consumes the entire
+            // budget. Generic directory names are useful semantic destinations,
+            // not a reason to exclude them from a small model's candidate set.
+            let ancestor = cwd.and_then(|cwd| {
+                all.iter()
+                    .map(|c| c.path.as_path())
+                    .filter(|p| *p != cwd && cwd.starts_with(p))
+                    .max_by_key(|p| p.components().count())
+            });
+            let in_scope = |identity: &(String, String)| {
+                cwd.is_some_and(|cwd| {
+                    groups[identity].iter().any(|c| {
+                        c.path != cwd
+                            && (c.path.starts_with(cwd)
+                                || ancestor.is_some_and(|a| c.path.starts_with(a)))
+                    })
+                })
+            };
+            let (local_generic, global_generic): (Vec<_>, Vec<_>) =
+                generic_names.into_iter().partition(in_scope);
+            let (local_named, global_named): (Vec<_>, Vec<_>) =
+                merged.into_iter().partition(in_scope);
+            let mut tiers = [
+                with_terms.into_iter(),
+                local_generic.into_iter(),
+                local_named.into_iter(),
+                global_generic.into_iter(),
+                global_named.into_iter(),
+            ];
+            let mut diverse = Vec::new();
+            loop {
+                let before = diverse.len();
+                for tier in &mut tiers {
+                    if let Some(item) = tier.next() {
+                        diverse.push(item);
+                    }
+                }
+                if diverse.len() == before {
+                    break;
+                }
+            }
+            diverse
+        } else {
+            with_terms
+                .into_iter()
+                .chain(merged)
+                .chain(generic_names)
+                .collect()
+        }
     };
     let truncated = picked.len() > limit;
     let out = picked
@@ -541,8 +597,12 @@ pub fn semantic_groups(
 ) -> (Vec<Group>, bool) {
     if force {
         let ordered = scoped(all, lexical, cwd, usize::MAX);
-        grouped_shortlist(&ordered, &ordered, terms, paths, cfg)
+        if cfg.provider.driver().capabilities().diverse_shortlist {
+            grouped_shortlist_in(&ordered, &[], terms, paths, cfg, Some(cwd))
+        } else {
+            grouped_shortlist_in(&ordered, &ordered, terms, paths, cfg, Some(cwd))
+        }
     } else {
-        grouped_shortlist(all, lexical, terms, paths, cfg)
+        grouped_shortlist_in(all, lexical, terms, paths, cfg, Some(cwd))
     }
 }

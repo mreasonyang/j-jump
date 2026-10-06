@@ -4,15 +4,22 @@ use crate::{
     config::{Config, Paths, Provider},
 };
 use zeroize::Zeroizing;
-const SERVICE: &str = "j-jump.jev";
-const ACCOUNT: &str = "typesafe-api-key";
 pub fn entry_identity(provider: Provider) -> (&'static str, &'static str) {
-    match provider {
-        Provider::Jev => (SERVICE, ACCOUNT),
-        Provider::ClefFlash => ("j-jump.cloudflare", "workers-ai-api-token"),
-    }
+    provider
+        .driver()
+        .descriptor()
+        .credential
+        .as_ref()
+        .map(|c| (c.service, c.account))
+        .unwrap_or(("", ""))
 }
 fn entry(provider: Provider) -> Result<keyring::Entry> {
+    if !provider.needs_credentials() {
+        return Err(Error(
+            2,
+            "selected provider does not use credentials".into(),
+        ));
+    }
     let (service, account) = entry_identity(provider);
     keyring::Entry::new(service, account).map_err(|_| {
         Error(
@@ -38,15 +45,20 @@ pub fn get(source: &str) -> Result<Zeroizing<String>> {
     get_for(Provider::Jev, source)
 }
 pub fn environment_name(provider: Provider) -> Option<&'static str> {
-    [
-        Some(provider.env_key()),
-        (provider == Provider::ClefFlash).then_some("CLOUDFLARE_API_TOKEN"),
-    ]
-    .into_iter()
-    .flatten()
-    .find(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
+    provider
+        .driver()
+        .descriptor()
+        .credential
+        .as_ref()?
+        .env
+        .iter()
+        .copied()
+        .find(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
 }
 pub fn get_for(provider: Provider, source: &str) -> Result<Zeroizing<String>> {
+    if !provider.needs_credentials() {
+        return Ok(Zeroizing::new(String::new()));
+    }
     if let Some(name) = environment_name(provider) {
         let s = Zeroizing::new(
             std::env::var(name)

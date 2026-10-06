@@ -40,22 +40,21 @@ fn value(cfg: &mut Config, key: &str, prompt: &str) -> Result<bool> {
         }
         let mut next = cfg.clone();
         let result = if key == "semantic" {
-            match input.as_str() {
-                "jev" => {
-                    next.semantic = true;
-                    next.provider = Provider::Jev;
-                    Ok(())
-                }
-                "clef-flash" => {
-                    next.semantic = true;
-                    next.provider = Provider::ClefFlash;
-                    Ok(())
-                }
-                "off" => {
-                    next.semantic = false;
-                    Ok(())
-                }
-                _ => Err(Error(2, "choose off, jev or clef-flash".into())),
+            if input == "off" {
+                next.semantic = false;
+                Ok(())
+            } else {
+                Provider::parse(&input)
+                    .map_err(|_| {
+                        Error(
+                            2,
+                            format!("choose off or {}", j_jump::providers::ids()).into(),
+                        )
+                    })
+                    .map(|p| {
+                        next.semantic = true;
+                        next.provider = p;
+                    })
             }
         } else {
             ui::field(&mut next, key, &input)
@@ -76,10 +75,17 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
             eprintln!(
                 "{}",
                 ui::tr(
-                    "off: local navigation only; no cloud requests.\njev: official Jev API; needs a Jev key.\nclef-flash: Cloudflare Workers AI; needs an Account ID and API token.",
-                    "off：仅本地导航，不发送云端请求。\njev：官方 Jev API，需要 Jev Key。\nclef-flash：Cloudflare Workers AI，需要 Account ID 和 API Token。"
+                    "off: local navigation only; no provider requests.",
+                    "off：仅本地导航，不发送语义请求。"
                 )
             );
+            for d in j_jump::providers::DRIVERS {
+                eprintln!(
+                    "{}: {}",
+                    d.descriptor().id,
+                    d.descriptor().summary.get(ui::tr("en", "zh") == "zh")
+                );
+            }
         } else if step == 1 {
             eprintln!(
                 "{}",
@@ -93,8 +99,9 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
             0 => (
                 "semantic",
                 format!(
-                    "{} [off/jev/clef-flash; {}]: ",
+                    "{} [off/{}; {}]: ",
                     ui::tr("Semantic provider", "语义服务"),
+                    j_jump::providers::ids().replace('|', "/"),
                     if cfg.semantic {
                         cfg.provider.id()
                     } else {
@@ -106,16 +113,29 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
                 "consent",
                 format!(
                     "{} [ask/always; {}]: ",
-                    ui::tr("Network permission", "联网许可"),
+                    if cfg.provider.needs_credentials() {
+                        ui::tr("Network permission", "联网许可")
+                    } else {
+                        ui::tr("Request permission", "请求许可")
+                    },
                     cfg.consent
                 ),
             ),
             _ => {
+                if !cfg.provider.needs_credentials() {
+                    eprintln!(
+                        "{}",
+                        ui::tr(
+                            "Local requests stay on this computer. The model uses memory while loaded.",
+                            "本机请求留在本电脑。模型加载期间会占用内存。"
+                        )
+                    );
+                }
                 eprintln!(
                     "{}",
                     ui::tr(
-                        "strict: names; balanced: limited context; full: paths.\nQuery and names can be private. The selected provider may charge for requests.",
-                        "strict：目录名；balanced：有限上下文；full：路径。\n查询和名称也可能敏感；所选服务商可能按请求计费。"
+                        "strict: names; balanced: limited context; full: paths.\nQuery and names can be private. Cloud providers may charge for requests.",
+                        "strict：目录名；balanced：有限上下文；full：路径。\n查询和名称也可能敏感；云端服务商可能按请求计费。"
                     )
                 );
                 (
@@ -142,25 +162,30 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
     }
 }
 fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool> {
-    if cfg.provider == Provider::ClefFlash {
-        eprintln!(
-            "{}",
-            ui::tr(
-                "Cloudflare Workers AI needs an Account ID (32 hexadecimal characters) and API token. CLOUDFLARE_ACCOUNT_ID overrides the saved ID; Enter keeps the current value, including an empty value for later setup.",
-                "Cloudflare Workers AI 需要 Account ID（32 位十六进制字符）和 API Token。CLOUDFLARE_ACCOUNT_ID 优先于保存的 ID；Enter 保留当前值，也可暂留空值稍后配置。"
-            )
-        );
+    for f in cfg.provider.driver().descriptor().fields {
+        eprintln!("{}", f.help.get(ui::tr("en", "zh") == "zh"));
         if let Some(notice) = ui::account_override_notice(cfg) {
             eprintln!("{notice}");
         }
         let prompt = format!(
             "{} [{}]: ",
-            ui::tr("Cloudflare Account ID", "Cloudflare Account ID"),
-            cfg.cloudflare_account_id
+            f.label.get(ui::tr("en", "zh") == "zh"),
+            (f.get)(cfg)
         );
-        if !value(cfg, "cloudflare_account_id", &prompt)? {
+        if !value(cfg, f.key, &prompt)? {
             return Ok(false);
         }
+    }
+    if !cfg.provider.needs_credentials() {
+        *pending = None;
+        eprintln!(
+            "{}",
+            ui::tr(
+                "No API key required. Service and model are not checked during setup; run jjump provider-check.",
+                "无需 API Key。设置时不检查服务和模型；请运行 jjump provider-check。"
+            )
+        );
+        return Ok(true);
     }
     loop {
         let env_name = j_jump::credential::environment_name(cfg.provider);
@@ -311,17 +336,10 @@ fn readiness(cfg: &Config, pending: &Option<Zeroizing<String>>) {
         if line == "jjump setup" {
             eprintln!(
                 "{}",
-                if cfg.provider == Provider::ClefFlash {
-                    ui::tr(
-                        "Back → 6 API key to configure the Account ID and API token here.",
-                        "返回 → 6 API Key，在这里配置 Account ID 和 API Token。",
-                    )
-                } else {
-                    ui::tr(
-                        "Back → 6 API key to enter a Key here.",
-                        "返回 → 6 API Key，在这里填写 Key。",
-                    )
-                }
+                ui::tr(
+                    "Back → 6 API key / provider settings to configure this provider.",
+                    "返回 → 6 API Key / 服务设置，在这里配置当前服务。"
+                )
             );
         } else if pending.is_none()
             || !line.starts_with("OS credential:") && !line.starts_with("系统凭证：")
@@ -335,9 +353,9 @@ fn roots(cfg: &mut Config, key: &str) -> Result<bool> {
         eprintln!(
             "{}",
             ui::tr(
-                "These folders and their subfolders stay searchable locally. Their names and paths are not sent to Jev.\nWhile you are inside one, Jev requests are disabled. File contents are never uploaded.\nExample: add /work/private-client to keep that client's directory information local.",
-                "这些文件夹及其子文件夹仍可在本地查找和跳转，但名称、路径不会发送给 Jev。\n你在这些文件夹里时，也不会调用 Jev。J-Jump 始终不会上传文件内容。\n例如：添加 /work/保密客户，让这个客户的目录信息只留在本机。"
-            ).replace("Jev", cfg.provider.label())
+                "These folders and their subfolders stay searchable locally. Their names and paths are not sent to the selected provider.\nWhile you are inside one, semantic requests are disabled. File contents are never uploaded.\nExample: add /work/private-client to keep that client's directory information local.",
+                "这些文件夹及其子文件夹仍可在本地查找和跳转，但名称、路径不会发送给所选服务。\n你在这些文件夹里时，也不会调用语义服务。J-Jump 始终不会上传文件内容。\n例如：添加 /work/保密客户，让这个客户的目录信息只留在本机。"
+            )
         );
         ui::tr(
             "Folders whose directory information stays local",
@@ -507,8 +525,8 @@ fn configure(paths: &Paths, inline: bool) -> Result<()> {
     eprintln!(
         "{}",
         ui::tr(
-            "J-Jump stores directory visits, never commands.\nLocal navigation needs no key or network.\nFirst setup saves when you finish the last step; later edits use Save in the menu.\nEnter keeps the current value; b goes back; q cancels before completion.\nChoose Jev or Clef-Flash, then enter an API key here (hidden; separate OS entries).",
-            "J-Jump 只记录目录访问，不记录命令。\n本地导航不需要凭证或网络。\n首次完成最后一步后自动保存；以后修改设置，在菜单中选择保存。\nEnter 保留当前值；b 返回；完成前可按 q 退出不保存。\n选择 Jev 或 Clef-Flash 后可输入 API Key（隐藏输入，分别存入系统凭证库）。"
+            "J-Jump stores directory visits, never commands.\nLocal navigation needs no key or network.\nFirst setup saves when you finish the last step; later edits use Save in the menu.\nEnter keeps the current value; b goes back; q cancels before completion.\nChoose a cloud or local provider. Required keys are entered here, hidden and stored separately. Local Tev1 needs no key.",
+            "J-Jump 只记录目录访问，不记录命令。\n本地导航不需要凭证或网络。\n首次完成最后一步后自动保存；以后修改设置，在菜单中选择保存。\nEnter 保留当前值；b 返回；完成前可按 q 退出不保存。\n可选择云端或本机服务。所需 Key 在此隐藏输入，分别存入系统凭证库；本机 Tev1 无需 Key。"
         )
     );
     match Store::open(paths, false).and_then(|db| db.list()) {
