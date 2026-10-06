@@ -2,6 +2,8 @@
 
 The current source VERSION is 0.0.35. It repairs automatic shell setup when another startup file or a comment mentions an initialization command. This source version has not been published; the download installer and public Homebrew channel still deliver 0.0.34.
 
+The clean 0.0.35 macOS ARM64 archive at source eae79e477401102cc8a2d05515de91123405112c passes shell setup regressions, real-curl TLS downloader tests and a data-preserving 0.0.34-to-0.0.35 archive upgrade. A controlled native Homebrew upgrade to that local archive also passes Formula tests, Bash/Zsh/Fish startup and navigation, reinstallation and exact shell undo. It uses the unchanged public Formula installation and test methods with a native-only local download fixture; it does not establish a public 0.0.35 Homebrew channel or other-target acceptance.
+
 The latest published release is [J-Jump 0.0.34](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.34). Four native Actions builds and their exact installed-package tests passed in [run 37341841880](https://github.com/mreasonyang/j-jump/actions/runs/37341841880), using immutable tag v0.0.34 at source 380ee6994b04e9c5554fd80bfe7fad6ad6a47225. All four public archives, checksum sidecars and the release manifest match the verified Actions bundle byte-for-byte after anonymous downloads. The bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
@@ -13,7 +15,7 @@ The latest published release is [J-Jump 0.0.34](https://github.com/mreasonyang/j
 
 Each native job tests automatic Bash/Zsh/Fish startup configuration, backups, exact undo, command conflicts and repeated installation in synthetic homes, both from source and from the exact installed archive. The real-curl TLS downloader suite tests the exact archive's installation, repeat, replacement and removal lifecycle. Temporary acceptance installations outside those shell fixtures pass `--no-shell` and leave runner startup files untouched. Ubuntu jobs suppress the distribution's global `compinit` initialization so its terminal prompt does not contaminate isolated fixture stderr.
 
-The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified CI-generated Formula for 0.0.34. After Homebrew installation, run `jjump shell install`; the complete command below does both. The 0.0.34 Formula is syntax-checked in the bundle job. Native Homebrew lifecycle execution for this version has not been measured.
+The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified CI-generated Formula for 0.0.34. After Homebrew installation, run `jjump shell install`; the complete command below does both. The 0.0.34 Formula is syntax-checked in the bundle job. Its native macOS ARM64 lifecycle now passes installation from an empty public-download cache, Formula tests, Bash/Zsh/Fish startup and navigation, exact shell undo, reinstallation, actual public 0.0.33-to-0.0.34 upgrade and data-preserving uninstall in an independent, non-default Homebrew prefix. Archive and installed-binary hashes match the accepted release. Other native Homebrew targets remain unmeasured.
 
 The public root downloader additionally passes latest installation, unchanged repeat, explicit v0.0.34 replacement, Bash/Zsh/Fish startup and navigation, managed shell removal and configuration-preserving binary uninstall on native Linux x86-64. A real public 0.0.33-to-0.0.34 upgrade preserves existing manual Bash integration and product configuration, and the installed binary hash matches the accepted archive.
 
@@ -167,10 +169,10 @@ brew upgrade mreasonyang/taps/j-jump
 brew uninstall mreasonyang/taps/j-jump
 ```
 
-The prior 0.0.33 Homebrew lifecycle and current 0.0.34 native archive jobs provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
+The current 0.0.34 Homebrew lifecycle and native archive jobs provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
 
 ## Platform and distribution limits
 
-The four archive targets have native Actions acceptance and verified public downloads. Homebrew lifecycle execution was measured for 0.0.33 on macOS ARM; 0.0.34 Homebrew lifecycle execution has not been measured. macOS packages are unsigned;
+The four 0.0.34 archive targets have native Actions acceptance and verified public downloads. Current Homebrew lifecycle execution is measured on native macOS ARM64 in an independent, non-default prefix; other native Homebrew targets remain unmeasured. Source 0.0.35 has no published assets or hosted build results. macOS packages are unsigned;
 checksums bind their identities and do not establish notarization. Linux Secret Service prompts, terminal behavior,
 live-provider effectiveness and genuine-user utility require their own acceptance.
