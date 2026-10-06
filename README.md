@@ -22,48 +22,38 @@ letters of its name and, with an optional semantic model, finds it by what it me
 
 - **By name, instantly.** `j pay` jumps to the best match among folders you've actually visited. Ranking happens on
   your machine and uses no network.
-- **By meaning, with Jev.** Can't remember the folder's name? `ji my cv` asks Jev which folder you mean.
+- **By meaning, with a model you choose.** Can't remember the name? `ji my cv` asks a semantic model which folder you
+  mean: Jev or Cloudflare Clef-Flash in the cloud, or Tev1 running entirely on your own computer.
 - **In any language.** `ji 税务` finds `taxes`; `ji machine learning experiments` finds `机器学习实验`.
-- **You stay in control.** Jev is off until you turn it on. It only suggests: nothing moves until you pick. In the
-  default strict mode, it receives only your query and folder names.
-- **Small and native.** One Rust binary for Bash, Zsh and Fish on macOS and Linux. No runtime or plugin manager is
-  needed, and no background service runs for local navigation.
+- **You stay in control.** Semantic help is off until you turn it on. It only suggests: nothing moves until you pick.
+  In the default strict mode, the model receives only your query and folder names.
+- **Small and native.** One Rust binary for Bash, Zsh and Fish on macOS and Linux. No runtime or plugin manager, and
+  no background service for local navigation.
 
 ## Quick start
 
-### 1. Install
-
-**Homebrew**:
+**1. Install.** Either command also connects your shell.
 
 ```sh
+# Homebrew
 brew install mreasonyang/taps/j-jump && jjump shell install
-```
 
-**Install script** (macOS 15+ or Linux; x86-64 or ARM64):
-
-```sh
+# Or the install script (macOS 15+ or Linux, x86-64 or ARM64)
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh
 ```
 
-The script picks the right build for your system, verifies its SHA-256 checksum and installs `jjump` (plus the
-equivalent `j-jump`) into `~/.local/bin`. It connects Bash, Zsh or Fish and adds the binary directory to PATH, with
-backups of existing startup files. It needs no sudo. Pass `--no-shell` to skip shell configuration.
-[Script options](docs/RELEASE.md#download-installer).
+The install script picks the right build, verifies its SHA-256 checksum and installs `jjump` (plus the equivalent
+`j-jump`) into `~/.local/bin`, without sudo. Shell setup detects Bash, Zsh or Fish, backs up your startup file and adds
+one clearly marked block, including the `PATH` entry. Pass `--no-shell` to the script to skip it.
+[Script options](docs/RELEASE.md#download-installer) · [Shell options](packaging/README.md)
 
-### 2. Open a new terminal
+**2. Open a new terminal.** Keep using `cd` as usual: J-Jump starts empty and learns each folder you visit.
 
-The installation commands above connect your shell automatically. Open a new terminal to use `j` and `ji`.
-For an existing installation, run `jjump shell install`; undo its managed configuration with `jjump shell uninstall`.
-[Shell options, backups and manual setup](packaging/README.md).
+**3. Run `j` or `ji`.** The first run opens a short setup wizard. Choose `off` to stay local-only (no key needed),
+or pick a semantic provider now. Change anything later with `jjump setup`.
 
-> Already use `j` for something else? Run `jjump shell install --cmd jump` to create `jump` and `jumpi` instead.
-> J-Jump refuses to overwrite existing `j`/`ji` commands.
-
-### 3. Start jumping
-
-Keep using `cd` as usual. J-Jump starts with an empty history and learns each folder you visit. The first time you run
-`j` or `ji`, a short setup wizard opens; choose local-only if you don't want Jev yet, which needs no key. You can
-change everything later with `jjump setup`.
+> Already use `j` for something else? `jjump shell install --cmd jump` gives you `jump` and `jumpi` instead.
+> J-Jump never overwrites existing `j`/`ji` commands.
 
 ## Everyday use
 
@@ -76,126 +66,120 @@ change everything later with `jjump setup`.
 | `j -` | Go back to the previous folder |
 | `j ../dir`, `j -- 'my folder'` | Plain paths work too |
 | `ji` | Browse your history in a numbered list |
-| `ji pay` | Choose from matches; asks the selected provider first when semantic help is enabled |
+| `ji pay` | Choose from matches; asks your semantic provider first when it's on |
 | `j pay ` then <kbd>Tab</kbd> | Choose a match into the command line, then press <kbd>Enter</kbd> to go |
 
 **How matches are ranked:** exact folder name, then prefix, then substring, then a match on a parent folder. Within each
-tier, folders you visit often and recently come first; visit weight halves every seven days. Run `jjump explain pay` to
-see the ranking.
+tier, folders you visit often and recently come first; visit weight halves every seven days. `jjump explain pay` shows
+the ranking.
 
 **In the picker:** type a number to jump, `n`/`p` to change page, `v 3` to see a full path, and Enter or `q` to cancel.
-If you prefer fuzzy filtering, install [fzf](https://github.com/junegunn/fzf) and set `export J_JUMP_PICKER=fzf`.
+For fuzzy filtering, install [fzf](https://github.com/junegunn/fzf) and set `export J_JUMP_PICKER=fzf`.
 
-## Semantic providers: find folders by meaning
+## Find folders by meaning
 
-Jev, Cloudflare Clef-Flash and local Ollama Tev1 4B are optional semantic providers. Semantic help is **off by default**, and local navigation never needs a provider.
+Semantic help is **off by default**, and local navigation never needs it. Pick one provider:
 
-**Turn it on** with `jjump setup`: choose Jev and paste your key. Input is hidden, and the key is saved to your OS
-credential store, never to a file. Alternatively, set `TYPESAFE_API_KEY` in your environment and run
-`jjump config set semantic on`. A key alone never enables requests.
+| Provider | Runs | You need | Available in |
+| --- | --- | --- | --- |
+| `jev` (default) | Cloud | A Jev API key | Release 0.0.38 |
+| `clef-flash` | Cloud ([Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/models/clef-flash/)) | A Cloudflare Account ID and Workers AI API token | Release 0.0.38 |
+| `tev1` | Your computer, via [Ollama](https://ollama.com/download) | Ollama 0.35+ and a ~4.5 GB model; no key | Source 0.0.40, not yet released |
 
-In setup, `off` keeps navigation local. At the key step, `skip` stops using the stored key, while environment keys still apply.
-To turn off cloud requests, choose `off` or run `jjump config set semantic off`.
+The easiest way to set one up is `jjump setup`. It walks you through choosing the provider and entering its key or
+local model, then turns semantic help on. Keys are typed hidden and saved to your OS credential store, never to a file;
+each provider has its own entry.
 
-**When the selected provider is asked:**
+**How it behaves:**
 
-- `j pay` with a local match jumps immediately and never contacts the provider. Only when nothing matches locally may it ask the provider.
-- `ji QUERY` and <kbd>Tab</kbd> completion with a query ask the selected provider when semantic help is enabled. A bare `ji`, `--offline` and
+- `j pay` with a local match jumps immediately and never contacts a provider. Only when nothing matches may it ask.
+- `ji QUERY` and <kbd>Tab</kbd> completion with a query ask the provider. A bare `ji`, `--offline` and
   `J_JUMP_OFFLINE=1` stay local.
-- The suggestion is marked with the selected provider name at the top of the list, and you still choose. Cancelling never picks anything.
-- With the default `consent ask`, J-Jump confirms before each request. `jjump config set consent always` skips that.
-  The selected service may charge per request.
-- A request waits up to 10 seconds. While waiting, press Enter to switch to local choices or `W` to keep waiting.
-  Errors, timeouts and "not sure" answers stop without moving you.
+- The suggestion appears first in the list, labelled with the provider's name. You still choose; cancelling never
+  picks anything.
+- By default (`consent ask`) J-Jump asks before each request; `jjump config set consent always` stops asking. Cloud
+  services may charge per request.
+- A request waits up to 10 seconds. Press Enter to switch to local choices or `W` to keep waiting. Errors, timeouts
+  and "not sure" answers leave you where you are. J-Jump never falls back to another provider on its own.
 
-### Choose Cloudflare Clef-Flash
-
-Run `jjump setup`, select `clef-flash`, enter your Cloudflare Account ID and paste a Workers AI API token.
-The token uses its own OS credential entry, separate from Jev. You can also use environment credentials:
+<details>
+<summary><b>Jev without the wizard</b></summary>
 
 ```sh
-export CLOUDFLARE_ACCOUNT_ID="your-32-character-account-id"
-export CLOUDFLARE_AUTH_TOKEN="your-workers-ai-api-token"
-jjump config set provider clef-flash
+jjump config set provider jev
+export TYPESAFE_API_KEY="your-jev-key"     # or store it: jjump credential set
 jjump config set semantic on
 ```
 
-`CLOUDFLARE_API_TOKEN` is an alias, used when `CLOUDFLARE_AUTH_TOKEN` is absent or empty.
-`CLOUDFLARE_ACCOUNT_ID` overrides the saved `cloudflare_account_id`; tokens override only their own provider's stored key.
-An invalid nonempty Account ID environment value blocks requests. Correct it, or unset it to use the saved account.
-Invalid environment keys/tokens also block cloud requests; `doctor` checks their format locally without sending or displaying them.
-Switch back with `jjump config set provider jev`. Jev remains the default, and enabling either provider is a separate setting.
-`jjump credential status/set/delete` operates on the selected provider. Switching discards an unsaved key draft;
-previously saved provider credentials are kept. Requests use the [official Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/),
-with the `clef-flash` model. Privacy, consent, offline mode and explicit selection apply to both providers; suggestions
-are labelled with the selected provider. Cached responses are bound to provider, account and credential. Failed requests
-never switch providers automatically. `doctor` checks configuration locally; it does not verify API permissions or test cloud inference.
+The environment variable takes priority over the stored key. A key alone never turns requests on.
 
-### Choose local Tev1 4B
+</details>
 
-Version 0.0.40 guides you through preparation, address, model selection and an optional connection check in `jjump setup`.
-Select `tev1`; no API key is needed. Install [Ollama 0.35 or later](https://ollama.com/download), open its app
-(or keep `ollama serve` running in another terminal), then download the explicit GGUF tag:
+<details>
+<summary><b>Cloudflare Clef-Flash without the wizard</b></summary>
 
 ```sh
+jjump config set provider clef-flash
+export CLOUDFLARE_ACCOUNT_ID="your-32-character-account-id"
+export CLOUDFLARE_AUTH_TOKEN="your-workers-ai-api-token"
+jjump config set semantic on
+```
+
+- `CLOUDFLARE_API_TOKEN` works as an alias when `CLOUDFLARE_AUTH_TOKEN` is unset or empty.
+- `CLOUDFLARE_ACCOUNT_ID` overrides the saved `cloudflare_account_id`. An invalid value blocks requests until you fix
+  or unset it.
+- `jjump doctor` checks the format of these values locally. It doesn't test API permissions or send a request.
+
+</details>
+
+<details>
+<summary><b>Local Tev1 4B (source 0.0.40)</b></summary>
+
+Tev1 runs on your computer through Ollama. J-Jump never installs or starts Ollama and never downloads models.
+
+```sh
+# 1. Install Ollama 0.35+ and open the app (or keep `ollama serve` running), then:
 ollama pull tev1:4b-q8_0
+# 2. Choose tev1 in the wizard; type `check` at the connection step to test it.
 jjump setup
 ```
 
-The recommended Q8_0 download is about 4.5 GB. Keep the address `http://127.0.0.1:11434` unless you use a different
-local port. At the model prompt, Enter keeps the tag; `list` explicitly queries installed compatible models and lets
-you choose a number. Listing does not load a model. At the connection step, type `check` to verify the service and
-send a synthetic decision, `help` for preparation commands using your chosen address, or `skip` to configure later.
-Failure keeps the draft and offers recovery/retry; `b` returns to the previous step and `q` discards unsaved changes.
-For later edits, run `jjump setup` and choose **6 Provider settings**.
-
-J-Jump does not install/start Ollama or download weights. Supported [Tev1 4B tags](https://ollama.com/library/tev1/tags)
-are `tev1:4b-q8_0`, `tev1:4b-q4_K_M`, `tev1:4b-bf16`, and existing `tev1:4b` **GGUF** installations.
-[System One](https://docs.ollama.com/api/systemone) cannot use MLX/Safetensors. New configurations default to Q8_0;
-existing profiles keep `tev1:4b` until explicitly changed. No model alias is overwritten.
-
-For noninteractive configuration:
+Or configure it directly:
 
 ```sh
 jjump config set provider tev1
 jjump config set ollama_url http://127.0.0.1:11434
 jjump config set ollama_model tev1:4b-q8_0
-jjump provider-check --models --json
-jjump provider-check --json
+jjump provider-check --models      # list installed compatible models without loading one
+jjump provider-check               # load the model and send one synthetic test request
 jjump config set semantic on
 ```
 
-For a custom port, start with `env OLLAMA_HOST=127.0.0.1:11439 ollama serve` in another terminal and use
-`env OLLAMA_HOST=http://127.0.0.1:11439 ollama pull tev1:4b-q8_0`; set the same URL in J-Jump.
-The explicit connection check can load the model and has a 10-second deadline. A cold load may need a later retry.
-Passing it does not measure directory-selection quality. Setup only sends requests for explicit `list`/`check` actions;
-`doctor`, status and preview remain offline. `--offline` also disables local discovery and inference in setup.
-Loopback IPv4/IPv6 literals are accepted; remote hosts, proxies, redirects and Authorization headers are not used.
-Local requests retain the same consent, privacy and explicit-selection rules as cloud requests.
+- Supported [GGUF tags](https://ollama.com/library/tev1/tags): `tev1:4b-q8_0` (recommended), `tev1:4b-q4_K_M`,
+  `tev1:4b-bf16` and existing `tev1:4b` installs. MLX/Safetensors builds don't work.
+- Only loopback addresses are used, with no proxy. For another port, start Ollama with
+  `env OLLAMA_HOST=127.0.0.1:11439 ollama serve` and set the same URL in J-Jump.
+- The 10-second deadline includes loading the model, so the first request after a cold start may need a retry. Ollama
+  keeps the model in memory for five minutes after each request.
+- Tev1 sees at most 23 folder groups per question, so the folder you want may not be among them. Its answers aren't
+  cached between runs.
+- Setup only contacts Ollama when you type `list` or `check`; `doctor`, `preview` and status stay offline.
 
-Tev1 uses at most 23 directory groups plus `none`. A conservative context budget may reduce this further;
-long queries or metadata can be refused rather than truncated. Compact selection distributes slots across
-query evidence, workspace scope and generic/informative names. `preview` shows the exact final request.
-This bounded shortlist does not guarantee that every intended target is included.
+</details>
 
-A request has the same 10-second deadline, including cold loading. The model is kept loaded for five minutes
-after a request and consumes local memory; manage its lifecycle with Ollama. Tev1 answers are not persistently
-cached because a local model tag can change weights. Provider outages are isolated from the other providers.
-There is no automatic provider fallback or automatic semantic jump.
+### What the provider can see
 
-### What the selected provider can see
-
-| `privacy` setting | Sent to the selected provider |
+| `privacy` setting | Sent to the provider |
 | --- | --- |
 | `strict` (default) | Your query and candidate folder names |
 | `balanced` | Plus each folder's parent name, the current folder's name and a low/medium/high visit level |
 | `full` | Like `balanced`, but with full parent and current folder paths |
 
-File contents, Git remotes, environment variables, shell history and credentials are **never** sent. Folder names and
-queries can themselves be sensitive, so you have more controls:
+File contents, Git remotes, environment variables, shell history and credentials are **never** sent, and the same
+rules apply to local Tev1. Folder names and queries can themselves be sensitive, so you have more controls:
 
 - `jjump preview "my cv"` prints the exact request without sending anything.
-- `no_send` folders still work locally but are never sent to a provider, and semantic requests are off while you're inside them.
+- `no_send` folders still work locally but are never sent, and semantic requests are off while you're inside them.
 - `exclude` folders are never recorded or searched at all.
 
 ```sh
@@ -211,27 +195,28 @@ Use the interactive `jjump setup`, or `jjump config set KEY VALUE`. `jjump confi
 | Key | Values | Default |
 | --- | --- | --- |
 | `semantic` | `on`, `off` | `off` |
-| `provider` | `jev`, `clef-flash` | `jev` |
-| `cloudflare_account_id` | 32 hexadecimal characters or empty | empty |
+| `provider` | `jev`, `clef-flash`, `tev1` | `jev` |
 | `consent` | `ask`, `always` | `ask` |
 | `privacy` | `strict`, `balanced`, `full` | `strict` |
 | `tracking` | `on`, `off` | `on` |
 | `exclude`, `no_send` | JSON array of absolute paths | `[]` |
 | `language` | `auto`, `en`, `zh` | `auto` |
-| `semantic_route` | `local_first`, `force` (always ask the selected provider; you still choose) | `local_first` |
-| `candidate_limit` | `1`–`254` folder groups offered to the selected provider | `254` |
+| `semantic_route` | `local_first`, `force` (always ask the provider; you still choose) | `local_first` |
+| `candidate_limit` | `1`–`254` folder groups offered to a cloud provider | `254` |
+| `cloudflare_account_id` | 32 hexadecimal characters | empty |
+| `ollama_url` | Loopback HTTP address | `http://127.0.0.1:11434` |
+| `ollama_model` | A supported Tev1 4B tag | `tev1:4b-q8_0` |
 
 | Environment variable | Effect |
 | --- | --- |
-| `TYPESAFE_API_KEY` | Jev key; takes priority over the stored Jev key |
-| `CLOUDFLARE_AUTH_TOKEN` | Workers AI token; takes priority over the stored Cloudflare token |
-| `CLOUDFLARE_API_TOKEN` | Alias when `CLOUDFLARE_AUTH_TOKEN` is absent or empty |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account; overrides the saved Account ID |
+| `TYPESAFE_API_KEY` | Jev key; overrides the stored Jev key |
+| `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_API_TOKEN` | Workers AI token; overrides the stored Cloudflare token |
+| `CLOUDFLARE_ACCOUNT_ID` | Overrides the saved Cloudflare Account ID |
 | `J_JUMP_PICKER` | `fzf` or `numbered` (default) |
 | `J_JUMP_OFFLINE=1` | Keep this command local |
 | `J_JUMP_LANG` | `en` or `zh` messages |
 | `J_JUMP_CONFIG` | Use another config file (`--config` takes priority) |
-| `J_JUMP_HOME` | Keep config, history and cache under another absolute folder (the OS credential entry is still shared) |
+| `J_JUMP_HOME` | Keep config, history and cache under another absolute folder (OS credential entries are still shared) |
 
 Files live in `~/Library/Application Support/j-jump` and `~/Library/Caches/j-jump` on macOS, and in the XDG folders
 `~/.config/j-jump`, `~/.local/share/j-jump` and `~/.cache/j-jump` on Linux.
@@ -247,7 +232,7 @@ mkdir -m 700 ~/jjump-backup && jjump history backup ~/jjump-backup/visits.json
 jjump history restore ~/jjump-backup/visits.json    # validates; add --apply to replace
 jjump history clear --preview
 jjump data clear --preview          # history and cached semantic answers
-jjump credential delete             # remove the selected provider key (preview)
+jjump credential delete             # remove the current provider's stored key (preview)
 ```
 
 Anything that deletes or replaces data shows a preview first; add `--apply` to do it. Backups must sit in a private
@@ -257,10 +242,12 @@ Anything that deletes or replaces data shows a preview first; add `--apply` to d
 
 | Problem | Fix |
 | --- | --- |
+| `j: command not found` after installing | Open a new terminal. If it persists, run `jjump shell install` and follow what it reports. |
 | `j foo` finds nothing | J-Jump only knows folders visited since you installed it. `cd` there once, or check with `jjump explain foo`. |
-| `j` or `ji` is already taken | Initialize with `--cmd jump` to get `jump` and `jumpi`. |
+| `j` or `ji` is already taken | `jjump shell install --cmd jump` gives you `jump` and `jumpi`. |
 | <kbd>Tab</kbd> doesn't insert a choice in Bash | Your terminal didn't answer Bash's cursor query; the line is left as it was. Use `ji foo` instead. |
-| Linux can't save the key | The OS credential store needs a Secret Service session, such as GNOME Keyring. Or use `TYPESAFE_API_KEY`. |
+| Linux can't save a key | The OS credential store needs a Secret Service session, such as GNOME Keyring. Or use the provider's environment variable. |
+| Tev1 doesn't answer | Make sure Ollama is running and the model is pulled, then run `jjump provider-check`. A cold start may need a retry. |
 | An error mentions an old or unknown format | J-Jump is pre-1.0 and reads only its current state formats. Your files are left untouched; `jjump doctor` shows the remedy. |
 | Anything else | Run `jjump doctor`. It's offline and suggests next steps. |
 
@@ -268,17 +255,20 @@ Exit codes for scripts: `2` input, `3` no match, `4` selection required, `5` pro
 
 ## Update and uninstall
 
-| | Homebrew | Install script |
-| --- | --- | --- |
-| Update | `brew upgrade mreasonyang/taps/j-jump` | Re-run the installer with `--replace` (below) |
-| Uninstall | `brew uninstall mreasonyang/taps/j-jump` | Run `install.sh --uninstall` from a [release archive](packaging/README.md#replace-recover-and-remove) |
-
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --replace
+# Update
+brew upgrade mreasonyang/taps/j-jump                                                         # Homebrew
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --replace   # install script
+
+# Uninstall: remove the shell block first, then the binary
+jjump shell uninstall
+brew uninstall mreasonyang/taps/j-jump                                                       # Homebrew
 ```
 
-Uninstalling keeps your settings, history and stored key; clear them first with the commands above if you want them gone.
-Run `jjump shell uninstall` before removing the binary to undo managed shell configuration. Remove any manual `jjump init` lines yourself.
+For an install-script installation, run `install.sh --uninstall` from the
+[release archive](packaging/README.md#replace-recover-and-remove) after `jjump shell uninstall`. Your settings, history
+and stored keys stay; clear them first with the commands above if you want them gone. `jjump shell uninstall` removes
+only unchanged J-Jump blocks; remove any `jjump init` lines you added by hand yourself.
 
 ## Platforms
 
@@ -289,17 +279,15 @@ Run `jjump shell uninstall` before removing the binary to undo managed shell con
 | Linux x86-64 (static musl build) | ✅ | ✅ |
 | Linux ARM64 (static musl build) | ✅ | ✅ |
 
-✅ means the 0.0.38 installation route passes native acceptance on that system. Homebrew 7.0.8 installation,
-repeat, test, reinstall, real 0.0.35-to-0.0.38 upgrade, cleanup and uninstall pass in independent prefixes,
-including Bash/Zsh/Fish integration and user-data preservation. Binaries are unsigned (no macOS notarization);
-installers check SHA-256 checksums instead. Windows, 32-bit systems and macOS before 15 aren't supported.
-Details: [release status and platform limits](docs/RELEASE.md).
+Release 0.0.38 passed native tests on all four systems through both install routes, including Bash, Zsh and Fish
+setup. Binaries are unsigned (no macOS notarization); installers check SHA-256 checksums instead. Windows, 32-bit
+systems and macOS before 15 aren't supported. Details: [release status and platform limits](docs/RELEASE.md).
 
 <details>
 <summary><b>Build from source</b></summary>
 
 You need Rust 1.88+ (for example via [rustup](https://rustup.rs)), a C toolchain and Python 3. SQLite and TLS are built
-in.
+in. Until the next release, building from source is how to try Tev1.
 
 ```sh
 git clone https://github.com/mreasonyang/j-jump.git && cd j-jump
@@ -310,7 +298,8 @@ tar -xzf j-jump-*.tar.gz && cd j-jump-*/
 ./install.sh --prefix "$HOME/.local"
 ```
 
-See [archive installation](packaging/README.md) for replacing and removing an installation.
+The archive installer connects your shell too (pass `--no-shell` to skip). See
+[archive installation](packaging/README.md) for replacing and removing an installation.
 
 </details>
 
@@ -318,7 +307,7 @@ See [archive installation](packaging/README.md) for replacing and removing an in
 
 - [Configuration, privacy and recovery guide](docs/CONFIGURATION-AND-HELP.md) (in Chinese)
 - [Install script, releases and platform limits](docs/RELEASE.md)
-- [Archive installation, replacement and removal](packaging/README.md)
+- [Archive installation, shell integration and removal](packaging/README.md)
 - [Documentation index](docs/README.md)
 
 ## Contributing
