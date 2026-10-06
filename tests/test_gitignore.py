@@ -57,6 +57,8 @@ class GitignorePolicyTests(unittest.TestCase):
             ".env.test.example",
             "AGENTS.md",
             "README.zh-CN.md",
+            "CONTRIBUTING.md",
+            "docs/CONFIGURATION.md",
             "docs/CONFIGURATION-AND-HELP.md",
             "docs/RELEASE.md",
             "packaging/README.md",
