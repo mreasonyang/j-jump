@@ -1,10 +1,6 @@
 # Release and Homebrew
 
-The current source VERSION is 0.0.35. It repairs automatic shell setup when another startup file or a comment mentions an initialization command. This source version has not been published; the download installer and public Homebrew channel still deliver 0.0.34.
-
-The clean 0.0.35 macOS ARM64 archive at source eae79e477401102cc8a2d05515de91123405112c passes shell setup regressions, real-curl TLS downloader tests and a data-preserving 0.0.34-to-0.0.35 archive upgrade. A controlled native Homebrew upgrade to that local archive also passes Formula tests, Bash/Zsh/Fish startup and navigation, reinstallation and exact shell undo. It uses the unchanged public Formula installation and test methods with a native-only local download fixture; it does not establish a public 0.0.35 Homebrew channel or other-target acceptance.
-
-The latest published release is [J-Jump 0.0.34](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.34). Four native Actions builds and their exact installed-package tests passed in [run 37341841880](https://github.com/mreasonyang/j-jump/actions/runs/37341841880), using immutable tag v0.0.34 at source 380ee6994b04e9c5554fd80bfe7fad6ad6a47225. All four public archives, checksum sidecars and the release manifest match the verified Actions bundle byte-for-byte after anonymous downloads. The bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
+The current source and latest published release is [J-Jump 0.0.35](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.35). It repairs automatic shell setup when another startup file or a comment mentions an initialization command. Four native Actions builds and their exact installed-package tests passed in [run 37405268855](https://github.com/mreasonyang/j-jump/actions/runs/37405268855), using immutable tag v0.0.35 at source 58990bd46d559a81707f1e46594a7dd68473555f. All four public archives, checksum sidecars and the release manifest match the accepted Actions bundle after anonymous downloads. The bundle passes source identity, checksums, archive safety, neutral ownership, license inventory and payload disclosure checks.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
 | --- | --- |
@@ -15,11 +11,11 @@ The latest published release is [J-Jump 0.0.34](https://github.com/mreasonyang/j
 
 Each native job tests automatic Bash/Zsh/Fish startup configuration, backups, exact undo, command conflicts and repeated installation in synthetic homes, both from source and from the exact installed archive. The real-curl TLS downloader suite tests the exact archive's installation, repeat, replacement and removal lifecycle. Temporary acceptance installations outside those shell fixtures pass `--no-shell` and leave runner startup files untouched. Ubuntu jobs suppress the distribution's global `compinit` initialization so its terminal prompt does not contaminate isolated fixture stderr.
 
-The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified CI-generated Formula for 0.0.34. After Homebrew installation, run `jjump shell install`; the complete command below does both. The 0.0.34 Formula is syntax-checked in the bundle job. Its native macOS ARM64 lifecycle now passes installation from an empty public-download cache, Formula tests, Bash/Zsh/Fish startup and navigation, exact shell undo, reinstallation, actual public 0.0.33-to-0.0.34 upgrade and data-preserving uninstall in an independent, non-default Homebrew prefix. Archive and installed-binary hashes match the accepted release. Other native Homebrew targets remain unmeasured.
+The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified CI-generated Formula for 0.0.35. After Homebrew installation, run `jjump shell install`; the complete command below does both. Its native macOS ARM64 lifecycle passes installation from an empty public-download cache, Formula tests, Bash/Zsh/Fish startup and navigation, exact shell undo, reinstallation, actual public 0.0.34-to-0.0.35 upgrade and data-preserving uninstall in an independent, non-default Homebrew prefix. Archive and installed-binary hashes match the accepted release. Other native Homebrew targets remain unmeasured.
 
-The public root downloader additionally passes latest installation, unchanged repeat, explicit v0.0.34 replacement, Bash/Zsh/Fish startup and navigation, managed shell removal and configuration-preserving binary uninstall on native Linux x86-64. A real public 0.0.33-to-0.0.34 upgrade preserves existing manual Bash integration and product configuration, and the installed binary hash matches the accepted archive.
+The public root downloader additionally passes latest installation at the default prefix, unchanged repeat, explicit v0.0.35 replacement, Bash/Zsh/Fish startup and navigation, exact managed shell removal and configuration-preserving binary uninstall on native macOS ARM64. A real public 0.0.34-to-0.0.35 upgrade repairs the Bash login setup defect while preserving configuration, visits and unrelated startup content. The installed binary hash matches the accepted public archive.
 
-Earlier [0.0.33 acceptance](https://github.com/mreasonyang/j-jump/actions/runs/37305476600) additionally covered native macOS ARM public Homebrew installation from an empty cache, Formula tests, Bash/Zsh/Fish navigation, reinstallation, current-version upgrade and data-preserving uninstall, plus strict audits of all OS/CPU branches. Its controlled 0.0.30-to-0.0.33 upgrade and public root-downloader checks apply to those versions; they do not establish 0.0.34 Homebrew lifecycle results.
+Earlier [0.0.34 acceptance](https://github.com/mreasonyang/j-jump/actions/runs/37341841880) covered four native archive jobs and verified public downloads; its independently measured public Homebrew 0.0.33-to-0.0.34 upgrade applies to those versions. The current 0.0.35 channel results above use the exact newly published assets.
 
 ## Download installer
 
@@ -37,7 +33,7 @@ and sha256sum or shasum, plus standard POSIX tools. It requires no Rust, Python 
 
 Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection fixtures cover target selection; the native Actions runs above additionally exercise each target's real archive through the TLS downloader and installed lifecycle.
 
-The default repository is `mreasonyang/j-jump`, with public 0.0.34 assets. Retrieve the maintained installer from `main/install.sh`; without `--version`, it automatically chooses the latest stable release through GitHub's latest redirect. No version number is needed in the default command. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
+The default repository is `mreasonyang/j-jump`, with public 0.0.35 assets. Retrieve the maintained installer from `main/install.sh`; without `--version`, it automatically chooses the latest stable release through GitHub's latest redirect. No version number is needed in the default command. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
 
 ```sh
 # Install the latest stable release into "$HOME/.local".
@@ -47,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 For a custom prefix or release version, pass options to `sh -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --prefix "$HOME/.local" --version 0.0.34
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --prefix "$HOME/.local" --version 0.0.35
 ```
 
 If you want to inspect the script before running it, download it first, review it and then run it with the desired options:
@@ -56,8 +52,8 @@ If you want to inspect the script before running it, download it first, review i
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh -o j-jump-install.sh
 # Review j-jump-install.sh before running it.
 sh ./j-jump-install.sh --prefix "$HOME/.local"
-# Optional: choose a specific release; v0.0.34 is also accepted
-sh ./j-jump-install.sh --version 0.0.34 --prefix "$HOME/.local"
+# Optional: choose a specific release; v0.0.35 is also accepted
+sh ./j-jump-install.sh --version 0.0.35 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
 sh ./j-jump-install.sh --prefix "$HOME/.local" --replace
 sh ./j-jump-install.sh --help
@@ -72,7 +68,7 @@ Removal uses `install.sh --uninstall` inside an extracted archive, as described 
 Downloads use HTTPS-only redirects with TLS verification, a 10-second connection timeout, a 120-second request timeout,
 at most 5 redirects, a 1KiB sidecar limit and a 128MiB archive limit. A private temporary directory is removed on completion,
 failure or interruption. SHA256 verifies integrity against the sidecar from the same release; it is not a signature and
-does not independently authenticate a publisher. Anonymous downloads of all four 0.0.34 targets pass verification against the accepted bundle.
+does not independently authenticate a publisher. Anonymous downloads of all four 0.0.35 targets pass verification against the accepted bundle.
 
 Offline downloader tests run with `python3 -m unittest discover -s tests -p test_download_installer.py -v`. They include
 a local TLS server with real curl and refusal of an HTTP downgrade. The native lifecycle is opt-in via
@@ -109,7 +105,7 @@ Release tools need Python3.9+ and the Rust/C build environment; end users do not
 ```sh
 python3 scripts/release.py check-source
 # For a previously authorized, existing version tag:
-python3 scripts/release.py check-source --tag v0.0.34
+python3 scripts/release.py check-source --tag v0.0.35
 
 # Run on the native target; this does not dispatch or publish anything:
 ./scripts/ci-release.sh aarch64-apple-darwin
@@ -155,7 +151,7 @@ The existing public tap is `mreasonyang/homebrew-taps`, with root flomo.rb. Plac
 
 ## Publication
 
-The public source and release repository is `mreasonyang/j-jump`; the Homebrew channel is `mreasonyang/taps/j-jump`. Release 0.0.34 contains four native archives, their four SHA256 sidecars and a source-bound release manifest. Publication used the guarded release and tap helpers with the accepted Actions bundle and existing local gh/git authorization. The hosted build/bundle jobs passed; the workflow's optional publisher and tap jobs were skipped in that build run.
+The public source and release repository is `mreasonyang/j-jump`; the Homebrew channel is `mreasonyang/taps/j-jump`. Release 0.0.35 contains four native archives, their four SHA256 sidecars and a source-bound release manifest. Publication used the guarded release and tap helpers with the accepted Actions bundle and existing local gh/git authorization. The hosted build/bundle jobs passed; the workflow's optional publisher and tap jobs were skipped in that build run.
 
 For future authorized hosted publication, the release destination comes from `J_JUMP_RELEASE_REPOSITORY`; otherwise it is the source repository. Publication refuses private destinations. Same-repository publication uses the job's contents-write GITHUB_TOKEN; a different release repository and the tap need a scoped `J_JUMP_DISTRIBUTION_TOKEN` stored through GitHub's secret UI. Do not put token values in chat or tracked files.
 
@@ -169,10 +165,10 @@ brew upgrade mreasonyang/taps/j-jump
 brew uninstall mreasonyang/taps/j-jump
 ```
 
-The current 0.0.34 Homebrew lifecycle and native archive jobs provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
+The current 0.0.35 Homebrew lifecycle and native archive jobs provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
 
 ## Platform and distribution limits
 
-The four 0.0.34 archive targets have native Actions acceptance and verified public downloads. Current Homebrew lifecycle execution is measured on native macOS ARM64 in an independent, non-default prefix; other native Homebrew targets remain unmeasured. Source 0.0.35 has no published assets or hosted build results. macOS packages are unsigned;
+The four 0.0.35 archive targets have native Actions acceptance and verified public downloads. Current Homebrew lifecycle execution is measured on native macOS ARM64 in an independent, non-default prefix; other native Homebrew targets remain unmeasured. macOS packages are unsigned;
 checksums bind their identities and do not establish notarization. Linux Secret Service prompts, terminal behavior,
 live-provider effectiveness and genuine-user utility require their own acceptance.

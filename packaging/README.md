@@ -85,7 +85,7 @@ Only current config3/visits4/backup3/cache3 are accepted; old/unknown formats re
 
 The archive contains manifest.json with source SHA/target/binary hash, binary.sha256, dependencies.json schema2, licenses/ and LICENSE.md. The dependency inventory records the resolved target graph and collected licence texts; missing texts are named explicitly in the inventory and licenses/MISSING.txt. Hashes establish identity, not signing/notarization or correctness.
 
-A source README update does not change an already-built archive's bytes. The public source is [mreasonyang/j-jump](https://github.com/mreasonyang/j-jump). [Release 0.0.34](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.34) provides all four accepted native archives. The public Homebrew channel is `brew install mreasonyang/taps/j-jump`; see [release acceptance and platform limits](../docs/RELEASE.md).
+A source README update does not change an already-built archive's bytes. The public source is [mreasonyang/j-jump](https://github.com/mreasonyang/j-jump). [Release 0.0.35](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.35) provides all four accepted native archives. The public Homebrew channel is `brew install mreasonyang/taps/j-jump`; see [release acceptance and platform limits](../docs/RELEASE.md).
 
 Installer receipts live in `share/j-jump-install`, separate from private data. Installing the same unchanged archive succeeds without rewriting binaries. Uninstall stops verified same-profile helpers, keeps unrelated profiles and user state, and removes only receipt-owned current names. Unknown previous executables are preserved because current-only installations do not create or adopt them.
 

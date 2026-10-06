@@ -206,7 +206,7 @@ Run `jjump shell uninstall` before removing the binary to undo managed shell con
 | Linux x86-64 (static musl build) | ✅ | Available |
 | Linux ARM64 (static musl build) | ✅ | Available |
 
-✅ means the installed 0.0.34 release passes native tests on that system. Its Apple silicon Homebrew lifecycle passed
+✅ means the installed 0.0.35 release passes native tests on that system. Its Apple silicon Homebrew lifecycle passed
 in an independent, non-default prefix; "Available" means that Homebrew route is supported by the Formula but hasn't
 been tested natively for this release. Binaries are unsigned (no macOS notarization);
 installers check SHA-256 checksums instead. Windows, 32-bit systems and macOS before 15 aren't supported.
