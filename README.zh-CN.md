@@ -208,12 +208,12 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 
 | 系统 | 安装脚本 | Homebrew |
 | --- | --- | --- |
-| macOS 15+（Apple 芯片） | ✅ | ✅ |
+| macOS 15+（Apple 芯片） | ✅ | 可用 |
 | macOS 15+（Intel） | ✅ | 可用 |
 | Linux x86-64（静态 musl 构建） | ✅ | 可用 |
 | Linux ARM64（静态 musl 构建） | ✅ | 可用 |
 
-✅ 表示安装后的 0.0.35 发布版已在该系统上通过原生测试。其中 Apple 芯片的 Homebrew 生命周期已在独立的非默认安装目录中通过测试；“可用”表示 Formula 支持该系统，但当前发布版的这条 Homebrew 路径尚未经过原生测试。可执行文件未签名（macOS 上未经公证），安装程序改用 SHA-256 校验完整性。不支持 Windows、32 位系统和 macOS 15 以下版本。详见[发布状态与平台限制](docs/RELEASE.md)（英文）。
+✅ 表示安装后的 0.0.38 压缩包已在该系统上通过原生测试；“可用”表示 Formula 支持该系统且公开下载已校验，本版 Homebrew 的完整生命周期尚未经过原生测试。此前 Apple 芯片的 Homebrew 验收结果只适用于 0.0.35。可执行文件未签名（macOS 上未经公证），安装程序改用 SHA-256 校验完整性。不支持 Windows、32 位系统和 macOS 15 以下版本。详见[发布状态与平台限制](docs/RELEASE.md)（英文）。
 
 <details>
 <summary><b>从源码构建</b></summary>
