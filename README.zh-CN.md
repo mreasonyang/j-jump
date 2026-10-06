@@ -133,19 +133,42 @@ jjump config set exclude '["/work/scratch"]'
 
 ## 本机 Tev1 4B
 
-源码版本 0.0.39 支持在 `jjump setup` 选择 `tev1`。请自行安装并启动 Ollama 0.35 或更高版本，
-准备 `tev1:4b` 的 GGUF 权重；System One 不支持 MLX/Safetensors 权重。J-Jump 不自动下载模型或管理服务。
+0.0.40 的 `jjump setup` 包含准备说明、地址、模型选择和可选连接检查。选择 `tev1` 即可，无需 API Key。
+先安装 [Ollama 0.35 或更高版本](https://ollama.com/download)，打开应用（或在另一终端保持 `ollama serve` 运行），再下载明确的 GGUF 标签：
+
+```sh
+ollama pull tev1:4b-q8_0
+jjump setup
+```
+
+推荐的 Q8_0 约 4.5 GB。没有自定义端口时，保留 `http://127.0.0.1:11434`。
+模型步骤按 Enter 保留当前标签；输入 `list` 主动查询本机已安装的兼容模型，再输入序号选择。查询列表不会加载模型。
+连接步骤输入 `check` 检查服务并发送合成请求，`help` 查看针对当前地址的准备命令，`skip` 跳过并稍后配置。
+检查失败会保留草稿、提示修复方式并允许重试；`b` 返回上一步，`q` 放弃未保存修改。
+以后运行 `jjump setup`，选择 **6 服务设置**，即可修改地址、模型并重新检查。
+
+J-Jump 不自动安装、启动 Ollama 或下载模型。[支持的 Tev1 4B 标签](https://ollama.com/library/tev1/tags)为
+`tev1:4b-q8_0`、`tev1:4b-q4_K_M`、`tev1:4b-bf16`，以及已有的 `tev1:4b` GGUF 安装。
+[System One](https://docs.ollama.com/api/systemone) 不支持 MLX/Safetensors 权重。
+新配置默认 Q8_0；已有配置保留原来的 `tev1:4b`，直到用户明确修改，不覆盖模型别名。
+
+也可以直接执行：
 
 ```sh
 jjump config set provider tev1
 jjump config set ollama_url http://127.0.0.1:11434
+jjump config set ollama_model tev1:4b-q8_0
+jjump provider-check --models --json
 jjump provider-check --json
 jjump config set semantic on
 ```
 
-Tev1 无需 API Key，不读取钥匙串。只连接本机 IPv4/IPv6 loopback 地址，不经过代理、不跟随重定向。
-`provider-check` 显式检查服务版本、模型元数据和一条合成决策，可能加载模型；通过不代表目录选择质量已验证。
-setup、doctor、状态和 preview 不联网。`--offline` 同样禁止本机模型请求。
+使用自定义端口时，在另一终端运行 `env OLLAMA_HOST=127.0.0.1:11439 ollama serve`，
+下载使用 `env OLLAMA_HOST=http://127.0.0.1:11439 ollama pull tev1:4b-q8_0`，J-Jump 填写相同地址。
+只连接本机 IPv4/IPv6 loopback 地址，不经过代理、不跟随重定向、不读取钥匙串。
+显式检查可能加载模型，最多等待 10 秒；冷启动较慢时可以稍后重试。通过不代表目录选择质量已验证。
+向导只在明确输入 `list` 或 `check` 时调用服务；doctor、状态和 preview 不联网。
+`--offline` 同样禁止向导中的模型查询和本机推理。
 
 最多 23 个目录组加 `none`，上下文预算可能进一步减少候选。小候选池为工作区、查询相关项和通用目录名保留机会，
 但不能保证目标一定入池。使用 `jjump preview 查询` 查看实际请求。许可、隐私过滤和明确选择仍然生效。

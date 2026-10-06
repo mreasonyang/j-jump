@@ -152,7 +152,7 @@ class SetupUsability(unittest.TestCase):
                         t.until(('Advanced settings' if language == 'en' else '高级设置').encode()); t.send('edit\r')
                         t.until(('Folders excluded from history and search' if language == 'en' else '不记录、不搜索的文件夹').encode())
                         t.send('\r')
-                        t.until(('Folders whose directory information stays local' if language == 'en' else '不向云端发送目录信息的文件夹').encode())
+                        t.until(('Folders whose directory information is not sent to providers' if language == 'en' else '不向语义服务发送目录信息的文件夹').encode())
                         t.send('\r')
                         label = ('Candidate limit' if language == 'en' else '候选数量').encode()
                         t.until(label)

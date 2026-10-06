@@ -148,6 +148,13 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
         lines.push("jjump setup".into());
     }
     if !cfg.provider.needs_credentials() {
+        for f in cfg.provider.driver().descriptor().fields {
+            lines.push(format!(
+                "{}: {}",
+                f.label.get(tr("en", "zh") == "zh"),
+                j_jump::display(&(f.get)(cfg))
+            ));
+        }
         lines.push(
             tr(
                 "Credentials: not required; OS credential store is not accessed.",
@@ -185,11 +192,13 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
         ));
         lines.push("jjump setup".into());
     }
-    lines.push(format!(
-        "{} {}",
-        cfg.provider.label(),
-        tr("connection: not tested here.", "连接：本次尚未实测。")
-    ));
+    if cfg.provider.needs_credentials() {
+        lines.push(format!(
+            "{} {}",
+            cfg.provider.label(),
+            tr("connection: not tested here.", "连接：本次尚未实测。")
+        ));
+    }
     lines
 }
 pub fn field(cfg: &mut Config, key: &str, value: &str) -> Result<()> {
@@ -205,7 +214,7 @@ pub fn field(cfg: &mut Config, key: &str, value: &str) -> Result<()> {
     }
     match key {
         "semantic" => cfg.semantic = boolean(value)?,
-        "provider" => cfg.provider = j_jump::config::Provider::parse(value)?,
+        "provider" => j_jump::providers::select(cfg, j_jump::config::Provider::parse(value)?)?,
         key if j_jump::providers::field(key).is_some() => {
             (j_jump::providers::field(key).unwrap().set)(cfg, value)?;
         }
@@ -326,6 +335,10 @@ pub fn command(mut cmd: clap::Command) -> clap::Command {
             };
             sub.about(desc)
         });
+    cmd = cmd.mut_subcommand("provider-check", |c| {
+        c.mut_arg("models", |a| a.help("仅查询已安装的兼容模型，不加载模型"))
+            .mut_arg("json", |a| a.help("输出 JSON 诊断"))
+    });
     cmd = cmd
         .mut_arg("config", |a| a.help("使用指定的绝对配置路径"))
         .mut_arg("offline", |a| a.help("本次命令禁止语义请求"))
@@ -448,6 +461,14 @@ pub fn error_text(e: &Error) -> String {
         .unwrap_or("语义服务");
     let detail: std::borrow::Cow<'_, str> = if e.1.contains("ollama_url expects") {
         "Ollama 地址只允许 http://127.0.0.1:端口 或 http://[::1]:端口，不允许远程主机、凭据、路径或查询参数。".into()
+    } else if e.1.contains("ollama_model expects") {
+        "模型标签只允许 tev1:4b、tev1:4b-q8_0、tev1:4b-q4_K_M 或 tev1:4b-bf16；需要 GGUF 权重。"
+            .into()
+    } else if e
+        .1
+        .contains("provider-check is unavailable in offline mode")
+    {
+        "离线模式不能检查服务或查询模型；本地导航仍然可用。".into()
     } else if e.1.contains("payload exceeds its byte/context budget") {
         "请求超过所选模型的上下文预算；请缩短查询或减少发送上下文。".into()
     } else if e.1.contains("local runtime version is unsupported") {

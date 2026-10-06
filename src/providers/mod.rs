@@ -22,6 +22,7 @@ pub struct CredentialSpec {
 }
 pub struct Field {
     pub key: &'static str,
+    pub discover: bool,
     /// Existing fields retain flat storage; new fields use provider namespaces.
     pub nested: bool,
     pub label: Text,
@@ -70,12 +71,21 @@ pub struct Connection {
 pub trait ProviderDriver: Sync {
     fn descriptor(&self) -> &'static Descriptor;
     fn model(&self) -> &'static str;
+    fn selected_model<'a>(&self, _cfg: &'a Config) -> &'a str {
+        self.model()
+    }
+    fn accepts_model(&self, model: &str) -> bool {
+        model == self.model()
+    }
     fn capabilities(&self) -> Capabilities {
         CLOUD
     }
     fn connection(&self, cfg: &Config, context: Option<&str>) -> Result<Connection>;
-    fn prepare(&self, mut task: Value) -> Result<Vec<u8>> {
-        task["model"] = self.model().into();
+    fn prepare(&self, mut task: Value, model: &str) -> Result<Vec<u8>> {
+        if !self.accepts_model(model) {
+            return Err(Error(5, "unsupported request model".into()));
+        }
+        task["model"] = model.into();
         serde_json::to_vec(&task).map_err(|_| Error(5, "cannot encode provider task".into()))
     }
     fn decode(&self, value: Value) -> Result<Value> {
@@ -84,9 +94,31 @@ pub trait ProviderDriver: Sync {
     fn config_notice(&self, _cfg: &Config, _chinese: bool) -> Option<String> {
         None
     }
-    fn diagnostic(&self, _responses: &[Value]) -> Result<Diagnostic> {
+    fn setup_help(&self, _cfg: &Config, _chinese: bool) -> Option<String> {
+        None
+    }
+    fn recovery(&self, _cfg: &Config, _error: &Error, _chinese: bool) -> Option<String> {
+        None
+    }
+    fn diagnostic(
+        &self,
+        _cfg: &Config,
+        _kind: DiagnosticKind,
+        _responses: &[Value],
+    ) -> Result<Diagnostic> {
         Err(Error(2,"provider-check is available for local model drivers; cloud requests use the normal interactive route".into()))
     }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticKind {
+    Check,
+    Models,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelOption {
+    pub id: String,
+    pub size_bytes: u64,
 }
 pub enum Diagnostic {
     Request {
@@ -116,7 +148,7 @@ pub fn for_model(model: &str) -> Result<&'static dyn ProviderDriver> {
     DRIVERS
         .iter()
         .copied()
-        .find(|d| d.model() == model)
+        .find(|d| d.accepts_model(model))
         .ok_or(Error(5, "unsupported request model".into()))
 }
 pub fn field(key: &str) -> Option<&'static Field> {
@@ -141,6 +173,37 @@ pub fn validate_settings(cfg: &Config) -> Result<()> {
     for d in DRIVERS {
         for f in d.descriptor().fields {
             (f.set)(&mut cfg.clone(), &(f.get)(cfg))?;
+        }
+    }
+    Ok(())
+}
+
+/// Explicit user selection initializes new provider fields, and retains the
+/// effective values of an old profile before switching away. Loading is read-only.
+pub fn select(cfg: &mut Config, provider: crate::config::Provider) -> Result<()> {
+    if cfg.provider != provider {
+        for f in cfg
+            .provider
+            .driver()
+            .descriptor()
+            .fields
+            .iter()
+            .filter(|f| f.nested)
+        {
+            let value = (f.get)(cfg);
+            (f.set)(cfg, &value)?;
+        }
+        cfg.provider = provider;
+        if !cfg.providers.contains_key(provider.id()) {
+            for f in provider
+                .driver()
+                .descriptor()
+                .fields
+                .iter()
+                .filter(|f| f.nested)
+            {
+                (f.set)(cfg, f.default)?;
+            }
         }
     }
     Ok(())
@@ -193,7 +256,7 @@ mod tests {
                 transport: Transport::Loopback,
             })
         }
-        fn diagnostic(&self, _: &[Value]) -> Result<Diagnostic> {
+        fn diagnostic(&self, _: &Config, _: DiagnosticKind, _: &[Value]) -> Result<Diagnostic> {
             Ok(Diagnostic::Complete(
                 serde_json::json!({"custom_probe":"ready"}),
             ))

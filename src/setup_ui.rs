@@ -51,9 +51,10 @@ fn value(cfg: &mut Config, key: &str, prompt: &str) -> Result<bool> {
                             format!("choose off or {}", j_jump::providers::ids()).into(),
                         )
                     })
-                    .map(|p| {
+                    .and_then(|p| {
+                        j_jump::providers::select(&mut next, p)?;
                         next.semantic = true;
-                        next.provider = p;
+                        Ok(())
                     })
             }
         } else {
@@ -161,31 +162,227 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
         step += 1;
     }
 }
-fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool> {
-    for f in cfg.provider.driver().descriptor().fields {
-        eprintln!("{}", f.help.get(ui::tr("en", "zh") == "zh"));
-        if let Some(notice) = ui::account_override_notice(cfg) {
-            eprintln!("{notice}");
-        }
-        let prompt = format!(
-            "{} [{}]: ",
-            f.label.get(ui::tr("en", "zh") == "zh"),
-            (f.get)(cfg)
-        );
-        if !value(cfg, f.key, &prompt)? {
-            return Ok(false);
-        }
+fn binding(cfg: &Config) -> String {
+    serde_json::to_string(cfg).expect("serializable configuration")
+}
+fn guidance(cfg: &Config) {
+    if let Some(help) = cfg
+        .provider
+        .driver()
+        .setup_help(cfg, ui::tr("en", "zh") == "zh")
+    {
+        eprintln!("{help}");
     }
-    if !cfg.provider.needs_credentials() {
-        *pending = None;
+}
+fn diagnostic_error(cfg: &Config, error: &Error) {
+    if let Some(help) = cfg
+        .provider
+        .driver()
+        .recovery(cfg, error, ui::tr("en", "zh") == "zh")
+    {
+        eprintln!("{help}");
+    } else {
+        eprintln!("{}", ui::error_text(error));
+    }
+}
+fn check(cfg: &Config, offline: bool, checked: &mut Option<String>) -> Result<bool> {
+    loop {
         eprintln!(
             "{}",
             ui::tr(
-                "No API key required. Service and model are not checked during setup; run jjump provider-check.",
-                "无需 API Key。设置时不检查服务和模型；请运行 jjump provider-check。"
+                "check sends a synthetic request and may load the model (10 seconds). help: preparation steps; skip: configure later.",
+                "check 发送合成请求，可能加载模型（最多 10 秒）；help 查看准备步骤；skip 稍后配置。"
             )
         );
-        return Ok(true);
+        if offline {
+            eprintln!(
+                "{}",
+                ui::tr(
+                    "Offline: service requests are disabled.",
+                    "离线模式：禁止调用服务。"
+                )
+            );
+        }
+        let answer = ask(ui::tr(
+            "Local connection check [check/help/skip/b/q; skip]: ",
+            "本机连接检查 [check/help/skip/b/q; skip]：",
+        ))?;
+        match answer.to_ascii_lowercase().as_str() {
+            "q" => return Err(cancelled()),
+            "b" => return Ok(false),
+            "help" => guidance(cfg),
+            "" | "skip" => {
+                eprintln!(
+                    "{}",
+                    ui::tr(
+                        "Check skipped. Use jjump provider-check when ready.",
+                        "已跳过检查；准备好后运行 jjump provider-check。"
+                    )
+                );
+                return Ok(true);
+            }
+            "check" if offline => eprintln!(
+                "{}",
+                ui::tr(
+                    "Cannot check in offline mode; choose skip or b.",
+                    "离线模式不能检查；请选择 skip 或 b。"
+                )
+            ),
+            "check" => {
+                *checked = None;
+                match adapter::diagnose(cfg) {
+                    Ok(_) => {
+                        *checked = Some(binding(cfg));
+                        eprintln!(
+                            "{}",
+                            ui::tr(
+                                "Local connection check passed. Directory quality is not measured.",
+                                "本机连接检查通过。尚未测量目录选择质量。"
+                            )
+                        );
+                        return Ok(true);
+                    }
+                    Err(e) => diagnostic_error(cfg, &e),
+                }
+            }
+            _ => eprintln!(
+                "{}",
+                ui::tr(
+                    "Choose check, help, skip, b or q.",
+                    "请输入 check、help、skip、b 或 q。"
+                )
+            ),
+        }
+    }
+}
+fn discover_value(cfg: &mut Config, f: &j_jump::providers::Field, offline: bool) -> Result<bool> {
+    let mut models: Vec<j_jump::providers::ModelOption> = Vec::new();
+    loop {
+        let input = ask(&format!(
+            "{} [{}; list]: ",
+            f.label.get(ui::tr("en", "zh") == "zh"),
+            (f.get)(cfg)
+        ))?;
+        match input.as_str() {
+            "q" => return Err(cancelled()),
+            "b" => return Ok(false),
+            "" => return Ok(true),
+            "list" => {
+                if offline {
+                    eprintln!(
+                        "{}",
+                        ui::tr(
+                            "Offline: enter a model tag manually; no request sent.",
+                            "离线模式：请手动填写模型标签，未发送请求。"
+                        )
+                    );
+                    continue;
+                }
+                match adapter::diagnose_for(cfg, j_jump::providers::DiagnosticKind::Models) {
+                    Ok(report) => {
+                        models = serde_json::from_value(report["models"].clone())
+                            .map_err(|_| Error(5, "invalid model list".into()))?;
+                        if models.is_empty() {
+                            eprintln!(
+                                "{}",
+                                ui::tr(
+                                    "No compatible models installed. Follow the preparation steps or enter a tag to configure later.",
+                                    "尚未安装兼容模型。请按准备步骤安装，或手动填写标签稍后配置。"
+                                )
+                            );
+                            guidance(cfg);
+                        }
+                        for (i, m) in models.iter().enumerate() {
+                            eprintln!(
+                                "{}: {} ({:.1} GB)",
+                                i + 1,
+                                j_jump::display(&m.id),
+                                m.size_bytes as f64 / 1e9
+                            );
+                        }
+                        if !models.is_empty() {
+                            eprintln!(
+                                "{}",
+                                ui::tr(
+                                    "Enter a number or model tag. Listing did not load the model.",
+                                    "输入序号或模型标签；查询列表没有加载模型。"
+                                )
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        models.clear();
+                        diagnostic_error(cfg, &e);
+                    }
+                }
+            }
+            _ => {
+                let selected = input
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| i.checked_sub(1))
+                    .and_then(|i| models.get(i))
+                    .map(|m| m.id.as_str())
+                    .unwrap_or(&input);
+                let mut next = cfg.clone();
+                match (f.set)(&mut next, selected) {
+                    Ok(()) => {
+                        *cfg = next;
+                        return Ok(true);
+                    }
+                    Err(e) => eprintln!("{}", ui::error_text(&e)),
+                }
+            }
+        }
+    }
+}
+fn key(
+    cfg: &mut Config,
+    pending: &mut Option<Zeroizing<String>>,
+    offline: bool,
+    checked: &mut Option<String>,
+) -> Result<bool> {
+    guidance(cfg);
+    let fields = cfg.provider.driver().descriptor().fields;
+    let mut step = 0usize;
+    loop {
+        if let Some(f) = fields.get(step) {
+            eprintln!("{}", f.help.get(ui::tr("en", "zh") == "zh"));
+            if let Some(notice) = ui::account_override_notice(cfg) {
+                eprintln!("{notice}");
+            }
+            let done = if f.discover {
+                discover_value(cfg, f, offline)?
+            } else {
+                value(
+                    cfg,
+                    f.key,
+                    &format!(
+                        "{} [{}]: ",
+                        f.label.get(ui::tr("en", "zh") == "zh"),
+                        (f.get)(cfg)
+                    ),
+                )?
+            };
+            if done {
+                step += 1;
+            } else if step == 0 {
+                return Ok(false);
+            } else {
+                step -= 1;
+            }
+        } else if !cfg.provider.needs_credentials() {
+            *pending = None;
+            if check(cfg, offline, checked)? {
+                return Ok(true);
+            }
+            if step == 0 {
+                return Ok(false);
+            }
+            step -= 1;
+        } else {
+            break;
+        }
     }
     loop {
         let env_name = j_jump::credential::environment_name(cfg.provider);
@@ -299,7 +496,12 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
         }
     }
 }
-fn network(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool> {
+fn network(
+    cfg: &mut Config,
+    pending: &mut Option<Zeroizing<String>>,
+    offline: bool,
+    checked: &mut Option<String>,
+) -> Result<bool> {
     loop {
         let previous_provider = cfg.provider;
         let completed = semantic(cfg, 0)?;
@@ -313,12 +515,17 @@ fn network(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<
             *pending = None;
             return Ok(true);
         }
-        if key(cfg, pending)? {
+        if key(cfg, pending, offline, checked)? {
             return Ok(true);
         }
     }
 }
-fn readiness(cfg: &Config, pending: &Option<Zeroizing<String>>) {
+fn readiness(
+    cfg: &Config,
+    pending: &Option<Zeroizing<String>>,
+    offline: bool,
+    checked: &Option<String>,
+) {
     if pending.is_some() {
         eprintln!(
             "{}",
@@ -332,13 +539,24 @@ fn readiness(cfg: &Config, pending: &Option<Zeroizing<String>>) {
     if pending.is_some() {
         effective.set_credential_source("system");
     }
-    for line in ui::readiness(&effective, super::offline_env()) {
-        if line == "jjump setup" {
+    for line in ui::readiness(&effective, offline) {
+        if checked.as_deref() == Some(binding(cfg).as_str())
+            && (line.starts_with("Local service and model:")
+                || line.starts_with("本机服务与模型："))
+        {
             eprintln!(
                 "{}",
                 ui::tr(
-                    "Back → 6 API key / provider settings to configure this provider.",
-                    "返回 → 6 API Key / 服务设置，在这里配置当前服务。"
+                    "Local service and model: passed for these draft settings during this session.",
+                    "本机服务与模型：本次会话已按当前草稿设置检查通过。"
+                )
+            );
+        } else if line == "jjump setup" {
+            eprintln!(
+                "{}",
+                ui::tr(
+                    "Back → 6 Provider settings to configure this provider.",
+                    "返回 → 6 服务设置，在这里配置当前服务。"
                 )
             );
         } else if pending.is_none()
@@ -358,8 +576,8 @@ fn roots(cfg: &mut Config, key: &str) -> Result<bool> {
             )
         );
         ui::tr(
-            "Folders whose directory information stays local",
-            "不向云端发送目录信息的文件夹",
+            "Folders whose directory information is not sent to providers",
+            "不向语义服务发送目录信息的文件夹",
         )
     } else {
         eprintln!(
@@ -473,6 +691,15 @@ fn reset(cfg: &mut Config) {
 fn summary(cfg: &Config) {
     eprintln!("{}", ui::tr("Draft (not saved):", "草稿（尚未保存）："));
     eprintln!("provider={}", cfg.provider.id());
+    if !cfg.provider.needs_credentials() {
+        for f in cfg.provider.driver().descriptor().fields {
+            eprintln!(
+                "{}: {}",
+                f.label.get(ui::tr("en", "zh") == "zh"),
+                j_jump::display(&(f.get)(cfg))
+            );
+        }
+    }
     eprintln!(
         "semantic={}\nconsent={}\nprivacy={}\ntracking={}\ncandidate_limit={}\nlanguage={}\n{}: {} / {}: {}",
         cfg.semantic,
@@ -484,14 +711,14 @@ fn summary(cfg: &Config) {
         ui::tr("Excluded from history/search", "不记录、不搜索的文件夹"),
         cfg.exclude.len(),
         ui::tr(
-            "Directory information stays local",
-            "不向云端发送目录信息的文件夹"
+            "Directory information not sent to providers",
+            "不向语义服务发送目录信息的文件夹"
         ),
         cfg.no_send.len()
     );
 }
 /// Only explicit shell navigation may offer setup; do not consume redirected input.
-pub fn if_needed(paths: &Paths) -> Result<()> {
+pub fn if_needed(paths: &Paths, offline: bool) -> Result<()> {
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Ok(());
@@ -509,18 +736,19 @@ pub fn if_needed(paths: &Paths) -> Result<()> {
             "欢迎使用 J-Jump。完成这里的配置后，将继续刚才的导航。",
         )
     );
-    configure(paths, true)
+    configure(paths, true, offline)
 }
 
-pub fn run(paths: &Paths) -> Result<()> {
-    configure(paths, false)
+pub fn run(paths: &Paths, offline: bool) -> Result<()> {
+    configure(paths, false, offline)
 }
 
-fn configure(paths: &Paths, inline: bool) -> Result<()> {
+fn configure(paths: &Paths, inline: bool, offline: bool) -> Result<()> {
     let _ = super::tty()?;
     let expected = paths.fingerprint()?;
     let mut cfg = paths.load()?;
     let mut pending = None;
+    let mut checked = None;
     ui::configure(&cfg.language);
     eprintln!(
         "{}",
@@ -551,7 +779,7 @@ fn configure(paths: &Paths, inline: bool) -> Result<()> {
         loop {
             match stage {
                 0 => {
-                    if network(&mut cfg, &mut pending)? {
+                    if network(&mut cfg, &mut pending, offline, &mut checked)? {
                         stage = 1;
                     }
                 }
@@ -606,13 +834,13 @@ fn configure(paths: &Paths, inline: bool) -> Result<()> {
             eprintln!(
                 "{}",
                 ui::tr(
-                    "1 Semantic and network\n2 Visit tracking\n3 Roots and advanced settings\n4 Display language\n5 Reset draft\n6 API key\n7 Offline readiness\ns Save; q Exit without saving",
-                    "1 语义和联网\n2 访问记录\n3 排除路径与高级设置\n4 显示语言\n5 草稿恢复默认\n6 API Key\n7 离线就绪检查\ns 保存；q 退出不保存"
+                    "1 Semantic provider\n2 Visit tracking\n3 Roots and advanced settings\n4 Display language\n5 Reset draft\n6 Provider settings\n7 Offline readiness\ns Save; q Exit without saving",
+                    "1 语义服务\n2 访问记录\n3 排除路径与高级设置\n4 显示语言\n5 草稿恢复默认\n6 服务设置\n7 离线就绪检查\ns 保存；q 退出不保存"
                 )
             );
             match ask("> ")?.to_ascii_lowercase().as_str() {
                 "1" => {
-                    network(&mut cfg, &mut pending)?;
+                    network(&mut cfg, &mut pending, offline, &mut checked)?;
                     continue;
                 }
                 "2" => {
@@ -643,11 +871,11 @@ fn configure(paths: &Paths, inline: bool) -> Result<()> {
                     continue;
                 }
                 "6" => {
-                    key(&mut cfg, &mut pending)?;
+                    key(&mut cfg, &mut pending, offline, &mut checked)?;
                     continue;
                 }
                 "7" => {
-                    readiness(&cfg, &pending);
+                    readiness(&cfg, &pending, offline, &checked);
                     continue;
                 }
                 "q" | "" => return Err(cancelled()),
@@ -668,7 +896,12 @@ fn configure(paths: &Paths, inline: bool) -> Result<()> {
             inline,
             pending.as_deref().map(String::as_str),
         ) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                if !cfg.provider.needs_credentials() {
+                    readiness(&cfg, &pending, offline, &checked);
+                }
+                return Ok(());
+            }
             Err(e) if e.0 == 5 => {
                 eprintln!("{}", ui::error_text(&e));
                 eprintln!(

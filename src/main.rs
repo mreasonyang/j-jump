@@ -109,6 +109,9 @@ enum Command {
     ProviderCheck {
         #[arg(long)]
         json: bool,
+        /// List compatible installed local models without loading them
+        #[arg(long)]
+        models: bool,
     },
     /// Show which visited directories match a query and how they rank
     Explain {
@@ -937,8 +940,8 @@ fn query(
     }
     output(&target)
 }
-fn setup(paths: &Paths) -> Result<()> {
-    setup_ui::run(paths)
+fn setup(paths: &Paths, offline: bool) -> Result<()> {
+    setup_ui::run(paths, offline)
 }
 fn credential_status(cfg: &Config) -> serde_json::Value {
     if !cfg.provider.needs_credentials() {
@@ -953,7 +956,7 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
             let cfg = paths.load()?;
             ui::configure(&cfg.language);
             if json {
-                println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"saved":cfg,"source":if paths.config.exists(){"user config"}else{"defaults"},"effective":{"semantic":cfg.semantic&&!offline,"tracking":cfg.tracking,"model":cfg.provider.driver().model(),"candidate_limit":cfg.candidate_limit.min(cfg.provider.driver().capabilities().max_candidates),"response_cache":cfg.provider.driver().capabilities().cacheable,"transport":cfg.provider.driver().connection(&cfg,None).ok().map(|c|format!("{:?}",c.transport))},"overrides":{"offline":offline},"credential":credential_status(&cfg),"automatic_quality_approved":false,"provider_live_test":"not run","proxy":cfg.proxy})).unwrap());
+                println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"saved":cfg,"source":if paths.config.exists(){"user config"}else{"defaults"},"effective":{"semantic":cfg.semantic&&!offline,"tracking":cfg.tracking,"model":cfg.provider.driver().selected_model(&cfg),"candidate_limit":cfg.candidate_limit.min(cfg.provider.driver().capabilities().max_candidates),"response_cache":cfg.provider.driver().capabilities().cacheable,"transport":cfg.provider.driver().connection(&cfg,None).ok().map(|c|format!("{:?}",c.transport))},"overrides":{"offline":offline},"credential":credential_status(&cfg),"automatic_quality_approved":false,"provider_live_test":"not run","proxy":cfg.proxy})).unwrap());
             } else {
                 println!(
                     "{}: {}",
@@ -1398,7 +1401,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::ShellHelp { cmd, interactive }) => ui::shell_help(&cmd, interactive),
-        Some(Command::SetupIfNeeded) => setup_ui::if_needed(&paths),
+        Some(Command::SetupIfNeeded) => setup_ui::if_needed(&paths, offline),
         Some(Command::Query {
             setup_if_needed,
             interactive,
@@ -1407,7 +1410,7 @@ fn run() -> Result<()> {
             terms,
         }) => {
             if setup_if_needed && !complete {
-                setup_ui::if_needed(&paths)?;
+                setup_ui::if_needed(&paths, offline)?;
             }
             query(
                 &paths,
@@ -1439,7 +1442,7 @@ fn run() -> Result<()> {
                 generation.as_deref().or(Some(&initial)),
             )
         }
-        Some(Command::Setup) if io::stdin().is_terminal() => setup(&paths),
+        Some(Command::Setup) if io::stdin().is_terminal() => setup(&paths, offline),
         None => {
             ui::command(Cli::command())
                 .print_help()
@@ -1502,7 +1505,10 @@ fn run() -> Result<()> {
             }
         },
         Some(Command::Config { action }) => config(&paths, action, offline),
-        Some(Command::ProviderCheck { json: machine }) => {
+        Some(Command::ProviderCheck {
+            json: machine,
+            models,
+        }) => {
             if offline {
                 return Err(Error(
                     2,
@@ -1510,8 +1516,21 @@ fn run() -> Result<()> {
                 ));
             }
             let cfg = paths.load()?;
-            let report = j_jump::adapter::diagnose(&cfg)?;
-            if machine {
+            let kind = if models {
+                j_jump::providers::DiagnosticKind::Models
+            } else {
+                j_jump::providers::DiagnosticKind::Check
+            };
+            let report = j_jump::adapter::diagnose_for(&cfg, kind).inspect_err(|error| {
+                if let Some(help) =
+                    cfg.provider
+                        .driver()
+                        .recovery(&cfg, error, ui::tr("en", "zh") == "zh")
+                {
+                    eprintln!("{help}");
+                }
+            })?;
+            if machine || models {
                 println!("{}", report);
             } else {
                 println!(

@@ -133,22 +133,43 @@ never switch providers automatically. `doctor` checks configuration locally; it 
 
 ### Choose local Tev1 4B
 
-Source version 0.0.39 adds `tev1`. Run `jjump setup`, select `tev1`, and keep the default
-`http://127.0.0.1:11434` or enter your local Ollama port. No API key is requested or read.
-Install and start [Ollama 0.35 or later](https://ollama.com/download) and provision compatible
-`tev1:4b` **GGUF** weights yourself; System One does not support MLX/Safetensors weights.
-J-Jump never installs, starts or downloads Ollama/models automatically.
+Version 0.0.40 guides you through preparation, address, model selection and an optional connection check in `jjump setup`.
+Select `tev1`; no API key is needed. Install [Ollama 0.35 or later](https://ollama.com/download), open its app
+(or keep `ollama serve` running in another terminal), then download the explicit GGUF tag:
+
+```sh
+ollama pull tev1:4b-q8_0
+jjump setup
+```
+
+The recommended Q8_0 download is about 4.5 GB. Keep the address `http://127.0.0.1:11434` unless you use a different
+local port. At the model prompt, Enter keeps the tag; `list` explicitly queries installed compatible models and lets
+you choose a number. Listing does not load a model. At the connection step, type `check` to verify the service and
+send a synthetic decision, `help` for preparation commands using your chosen address, or `skip` to configure later.
+Failure keeps the draft and offers recovery/retry; `b` returns to the previous step and `q` discards unsaved changes.
+For later edits, run `jjump setup` and choose **6 Provider settings**.
+
+J-Jump does not install/start Ollama or download weights. Supported [Tev1 4B tags](https://ollama.com/library/tev1/tags)
+are `tev1:4b-q8_0`, `tev1:4b-q4_K_M`, `tev1:4b-bf16`, and existing `tev1:4b` **GGUF** installations.
+[System One](https://docs.ollama.com/api/systemone) cannot use MLX/Safetensors. New configurations default to Q8_0;
+existing profiles keep `tev1:4b` until explicitly changed. No model alias is overwritten.
+
+For noninteractive configuration:
 
 ```sh
 jjump config set provider tev1
 jjump config set ollama_url http://127.0.0.1:11434
+jjump config set ollama_model tev1:4b-q8_0
+jjump provider-check --models --json
 jjump provider-check --json
 jjump config set semantic on
 ```
 
-`provider-check` explicitly checks the local runtime version, model metadata and one synthetic decision;
-it can load the model. Passing this check does not measure directory-selection quality.
-`doctor`, setup, status and preview remain offline. `--offline` also disables local model requests.
+For a custom port, start with `env OLLAMA_HOST=127.0.0.1:11439 ollama serve` in another terminal and use
+`env OLLAMA_HOST=http://127.0.0.1:11439 ollama pull tev1:4b-q8_0`; set the same URL in J-Jump.
+The explicit connection check can load the model and has a 10-second deadline. A cold load may need a later retry.
+Passing it does not measure directory-selection quality. Setup only sends requests for explicit `list`/`check` actions;
+`doctor`, status and preview remain offline. `--offline` also disables local discovery and inference in setup.
 Loopback IPv4/IPv6 literals are accepted; remote hosts, proxies, redirects and Authorization headers are not used.
 Local requests retain the same consent, privacy and explicit-selection rules as cloud requests.
 

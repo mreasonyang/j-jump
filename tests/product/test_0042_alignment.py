@@ -38,7 +38,7 @@ class Terminal:
 class Alignment(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.root=pathlib.Path(self.tmp.name).resolve(); self.home=self.root/'home'; self.cwd=self.home/'neutral'; self.cwd.mkdir(parents=True); self.state=self.root/'state'
-        self.protocol=int(os.environ.get('JJ_FIXTURE_ADAPTER_VERSION','6'))
+        self.protocol=int(os.environ.get('JJ_FIXTURE_ADAPTER_VERSION','7'))
         self.env=dict(HOME=str(self.home),J_JUMP_HOME=str(self.state),PATH=str(BIN.parent)+':'+os.environ['PATH'],LANG='en_US.UTF-8',LC_ALL='en_US.UTF-8',J_JUMP_LANG='en',TERM='xterm',NO_COLOR='1',J_JUMP_PICKER='numbered')
         if os.environ.get('JJ_TEST_HTTPS_PROXY'): self.env['HTTPS_PROXY']=os.environ['JJ_TEST_HTTPS_PROXY']
     def tearDown(self): self.tmp.cleanup()

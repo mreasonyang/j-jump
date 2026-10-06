@@ -17,6 +17,7 @@ static DESCRIPTION: Descriptor = Descriptor {
     ),
     fields: &[Field {
         key: "cloudflare_account_id",
+        discover: false,
         nested: false,
         label: Text("Cloudflare Account ID", "Cloudflare Account ID"),
         help: Text(

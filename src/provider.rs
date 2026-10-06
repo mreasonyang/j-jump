@@ -195,7 +195,7 @@ pub fn request(
                 "No uniquely supported destination, including ambiguity or insufficient evidence."
             ),
         );
-        driver.prepare(json!({"state": state, "questions": {"destination": {"type": "choice", "instructions": instructions, "criteria": criteria}}}))
+        driver.prepare(json!({"state": state, "questions": {"destination": {"type": "choice", "instructions": instructions, "criteria": criteria}}}), driver.selected_model(cfg))
     };
     // Largest prefix that fits: binary search over the priority order.
     let (mut low, mut high) = (0usize, entries.len().min(caps.max_candidates));
@@ -580,7 +580,7 @@ impl ProviderState {
             return Err(Error(5, "semantic networking is disabled".into()));
         }
         let request_value = strict_json(bytes)?;
-        if request_value["model"] != model(cfg.provider) {
+        if request_value["model"] != cfg.provider.driver().selected_model(cfg) {
             return Err(Error(
                 5,
                 "request does not match the selected provider".into(),
@@ -616,7 +616,7 @@ impl ProviderState {
             format!(
                 "{}:{}:{}:{}",
                 cfg.provider.id(),
-                model(cfg.provider),
+                cfg.provider.driver().selected_model(cfg),
                 identity.unwrap_or(&endpoint_identity),
                 cfg.credential_source()
             )

@@ -42,7 +42,7 @@ jjump init fish | source
 
 ## 可返回的配置草稿
 
-首次 setup 是短向导，显示初始历史和 Shell 尚未验证状态。Enter 保留值，b 返回，q/EOF/Ctrl-C 放弃草稿；误输入在当前题重问。回答完最后一步后自动保存，不再询问一次确认。再次 setup 提供语义、记录、路径/高级、语言、重置、API Key 设置、离线就绪检查菜单，选择一项即可修改，最后选择一次“保存”即完成。并发配置变化会拒绝覆盖，需重新载入。
+首次 setup 是短向导，显示初始历史和 Shell 尚未验证状态。Enter 保留值，b 返回，q/EOF/Ctrl-C 放弃草稿；误输入在当前题重问。回答完最后一步后自动保存，不再询问一次确认。再次 setup 提供语义、记录、路径/高级、语言、重置、服务设置、离线就绪检查菜单，选择一项即可修改，最后选择一次“保存”即完成。并发配置变化会拒绝覆盖，需重新载入。
 
 路径编辑逐条输入绝对路径，Enter 完成本组、clear 清空本组草稿。“不记录、不搜索的文件夹”：该文件夹及子文件夹不进入访问记录和本地搜索，直接输入路径仍可跳转。
 
@@ -129,12 +129,20 @@ jjump credential delete              # 仅预览
 
 ## 本机模型与当前语义状态
 
-`jjump setup` 选择 `tev1` 后填写 Ollama 地址，跳过 Key 步骤。命令行可用 `config set ollama_url http://127.0.0.1:11434`。
-地址只允许本机 `127.0.0.1` 或 `[::1]` 的 HTTP origin，不允许远程主机、URL 凭据、路径、查询或片段。
-Ollama 至少 0.35，模型固定 `tev1:4b`，需兼容 GGUF；用户负责安装、下载和启动。
+`jjump setup` 选择 `tev1` 后显示安装与下载说明，再填写 Ollama 地址和模型，无需 Key。
+先安装 Ollama 0.35 以上并启动应用（或在另一终端执行 `ollama serve`），执行 `ollama pull tev1:4b-q8_0` 下载约 4.5 GB 的推荐 GGUF 权重。
+地址默认 `http://127.0.0.1:11434`，只允许本机 `127.0.0.1` 或 `[::1]` 的 HTTP origin，不允许远程主机、URL 凭据、路径、查询或片段。
+模型字段 `ollama_model` 支持 `tev1:4b-q8_0`、`tev1:4b-q4_K_M`、`tev1:4b-bf16` 和已有 GGUF `tev1:4b`；不支持 MLX/Safetensors。
+新配置使用 Q8_0；旧配置未设置该字段时继续使用 `tev1:4b`，切换服务不会丢失原模型设置。
+设置可用 `jjump config set ollama_url 地址` 和 `jjump config set ollama_model 标签` 修改，也可在向导菜单选择 6 服务设置。
 
-`jjump provider-check --json` 是本机模型的显式连接检查：两条元数据请求加一条合成推理，最多 10 秒。
-它不发送访问历史，不测量目录质量；默认 doctor 与 setup 不调用它。检查失败保留设置，可按错误修复服务/模型后重试。
+模型步骤输入 `list` 查询本机兼容模型，输入序号选择；等效命令为 `jjump provider-check --models --json`，只读元数据，不加载模型。
+连接步骤可输入 `check` 主动检查、`help` 查看针对所选地址和模型的准备命令、`skip` 稍后配置、`b` 返回修改、`q` 退出不保存。
+`jjump provider-check --json` 执行两条元数据请求加一条合成推理，最多 10 秒，冷启动较慢时可稍后重试。
+检查不发送访问历史，不测量目录质量，也不保存草稿；错误会提示启动、下载或更新的恢复方式。
+检查成功仅说明本次草稿设置已通过，修改设置后需要重新检查。doctor 只做离线检查；setup 仅在明确 list/check 时请求服务。
+`--offline` 或 `J_JUMP_OFFLINE=1` 禁止模型查询与连接检查，仍可手工配置并跳过。
+J-Jump 不管理服务生命周期，也不自动安装、下载或覆盖模型别名。
 `credential status` 显示来源 none；set/delete 对不需要凭据的 Provider 拒绝操作，不接触其他服务的凭据。
 
 candidate_limit 的保存值仍为 1–254；实际 Tev1 请求最多 23 个目录组加 none，并受保守的 1,600 字节序列化上下文预算约束。

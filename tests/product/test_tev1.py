@@ -40,7 +40,7 @@ class Tev1(unittest.TestCase):
             def do_GET(self):
                 requests.append((self.path, dict(self.headers), None))
                 if self.path == '/api/version': self.reply({'version': '0.34.0' if outcome == 'old' else '0.35.1'})
-                else: self.reply({'models': [] if outcome == 'missing' else [{'name': 'tev1:4b', 'digest': 'synthetic-digest', 'details': {'format': 'mlx' if outcome == 'mlx' else 'gguf'}}]})
+                else: self.reply({'models': [] if outcome == 'missing' else [{'name': tag, 'size': 4500000000, 'digest': 'synthetic-digest', 'details': {'format': 'mlx' if outcome == 'mlx' else 'gguf'}} for tag in ('tev1:4b', 'tev1:4b-q8_0', 'tev1:4b-q4_K_M')]})
             def do_POST(self):
                 data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 requests.append((self.path, dict(self.headers), data))
@@ -155,6 +155,8 @@ class Tev1(unittest.TestCase):
             t.until(b'Request permission'); t.send('\r')
             t.until(b'Fields'); t.send('\r')
             t.until(b'Ollama URL'); t.send('\r')
+            t.until(b'Tev1 4B model'); t.send('\r')
+            t.until(b'Local connection check ['); t.send('skip\r')
             t.until(b'Local visit tracking'); t.send('\r')
             t.until(b'Advanced settings'); t.send('\r'); t.until(b'Saved.')
             self.assertNotIn(b'API key [', t.output)

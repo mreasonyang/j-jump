@@ -217,3 +217,120 @@ fn limited_shortlist_keeps_generic_destinations_for_unrelated_language_queries()
         }
     }
 }
+
+#[test]
+fn selected_model_binding_and_legacy_profiles_survive_switching() {
+    let (_t, p, mut cfg) = fixture();
+    assert_eq!(cfg.provider.driver().selected_model(&cfg), "tev1:4b");
+    providers::select(&mut cfg, Provider::Jev).unwrap();
+    providers::select(&mut cfg, Provider::Tev1).unwrap();
+    assert_eq!(cfg.provider.driver().selected_model(&cfg), "tev1:4b");
+    let mut fresh = Config::default();
+    providers::select(&mut fresh, Provider::Tev1).unwrap();
+    assert_eq!(
+        fresh.provider.driver().selected_model(&fresh),
+        "tev1:4b-q8_0"
+    );
+    let f = providers::field("ollama_model").unwrap();
+    for model in ["tev1:4b", "tev1:4b-q8_0", "tev1:4b-q4_K_M", "tev1:4b-bf16"] {
+        (f.set)(&mut cfg, model).unwrap();
+        let (r, _) = provider::request("project", &groups(&p, 2), &p.home, &p, &cfg).unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&r).unwrap()["model"], model);
+        assert!(provider::validate(&response(&r), &r).is_ok());
+        let mut bad: Value = serde_json::from_slice(&response(&r)).unwrap();
+        bad["model"] = json!(if model == "tev1:4b" {
+            "tev1:4b-q8_0"
+        } else {
+            "tev1:4b"
+        });
+        assert!(provider::validate(&serde_json::to_vec(&bad).unwrap(), &r).is_err());
+    }
+    for model in [
+        "tev1",
+        "tev1:0.5b",
+        "tev1:4b-mlx",
+        "Tev1:4b",
+        "tev1:4b\n",
+        "custom-alias",
+    ] {
+        let before = cfg.clone();
+        assert!((f.set)(&mut cfg, model).is_err());
+        assert_eq!(
+            serde_json::to_value(&cfg).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
+    }
+}
+
+#[test]
+fn model_discovery_filters_unknown_and_mlx_without_inference() {
+    use providers::{Diagnostic, DiagnosticKind};
+    let (_t, _p, cfg) = fixture();
+    let d = cfg.provider.driver();
+    let metadata = vec![
+        json!({"version":"0.35.1"}),
+        json!({"models":[
+            {"name":"tev1:4b-q8_0","details":{"format":"gguf"},"size":4500000000u64},
+            {"name":"tev1:4b-q8_0","details":{"format":"gguf"}},
+            {"name":"tev1:4b","details":{"format":"mlx"}},
+            {"name":"unknown\u{1b}[2J","details":{"format":"gguf"}}
+        ]}),
+    ];
+    let Diagnostic::Complete(report) = d
+        .diagnostic(&cfg, DiagnosticKind::Models, &metadata)
+        .unwrap()
+    else {
+        panic!("discovery must not infer")
+    };
+    assert_eq!(report["models"].as_array().unwrap().len(), 1);
+    assert_eq!(report["models"][0]["id"], "tev1:4b-q8_0");
+    assert!(
+        d.diagnostic(&cfg, DiagnosticKind::Check, &metadata)
+            .is_err()
+    );
+    for version in ["0.34.9", "0.35", "garbage", "0.35.0.1"] {
+        assert!(
+            d.diagnostic(&cfg, DiagnosticKind::Models, &[json!({"version":version})])
+                .is_err()
+        );
+    }
+    assert!(
+        d.diagnostic(
+            &cfg,
+            DiagnosticKind::Models,
+            &[json!({"version":"0.35.1"}), json!({"models":{}})]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn model_switch_rejects_stale_payload_and_has_a_separate_circuit() {
+    let (_t, p, mut cfg) = fixture();
+    let gs = groups(&p, 2);
+    let state = provider::ProviderState::open(&p).unwrap();
+    let (old, _) = provider::request("project", &gs, &p.home, &p, &cfg).unwrap();
+    for _ in 0..3 {
+        assert!(
+            state
+                .decide(&old, "old", &cfg, || Err(Error(
+                    5,
+                    "synthetic failure".into()
+                )))
+                .is_err()
+        );
+    }
+    (providers::field("ollama_model").unwrap().set)(&mut cfg, "tev1:4b-q8_0").unwrap();
+    assert!(
+        state
+            .decide(&old, "stale", &cfg, || panic!("stale payload sent"))
+            .is_err()
+    );
+    let (new, _) = provider::request("project", &gs, &p.home, &p, &cfg).unwrap();
+    assert!(
+        state
+            .decide(&new, "new", &cfg, || Ok(response(&new)))
+            .unwrap()
+            .is_some()
+    );
+}

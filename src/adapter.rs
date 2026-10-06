@@ -33,12 +33,18 @@ fn local_client() -> Result<reqwest::blocking::Client> {
 /// Explicit local service check. Offline doctor never calls this. Only static
 /// metadata and a synthetic decision are sent, through the driver's transport.
 pub fn diagnose(cfg: &crate::config::Config) -> Result<serde_json::Value> {
+    diagnose_for(cfg, crate::providers::DiagnosticKind::Check)
+}
+pub fn diagnose_for(
+    cfg: &crate::config::Config,
+    kind: crate::providers::DiagnosticKind,
+) -> Result<serde_json::Value> {
     let driver = cfg.provider.driver();
     // The driver owns metadata and probe semantics. The adapter only executes
     // bounded requests on the already validated local origin.
     let mut responses = Vec::new();
     let deadline = Instant::now() + INTERACTIVE_DEADLINE;
-    let mut step = driver.diagnostic(&responses)?;
+    let mut step = driver.diagnostic(cfg, kind, &responses)?;
     let connection = driver.connection(cfg, None)?;
     if connection.transport != crate::providers::Transport::Loopback {
         return Err(Error(5, "diagnostic transport is not local".into()));
@@ -77,14 +83,14 @@ pub fn diagnose(cfg: &crate::config::Config) -> Result<serde_json::Value> {
                 };
                 let raw = read_response(request.timeout(remaining(deadline)?).send())?;
                 responses.push(crate::provider::strict_json(raw.as_bytes())?);
-                step = driver.diagnostic(&responses)?;
+                step = driver.diagnostic(cfg, kind, &responses)?;
                 remaining(deadline)?;
             }
         }
     }
 }
 
-const VERSION: u8 = 6;
+const VERSION: u8 = 7;
 // A runtime directory may only be reclaimed once it has had no live owner for
 // at least this long. A shorter window risks racing a concurrent invocation
 // that has created its directory but not yet taken its instance lock.
@@ -1001,7 +1007,7 @@ fn process(
                     client.clone()
                 };
                 if crate::provider::strict_json(payload.as_bytes())?["model"]
-                    != crate::provider::model(cfg.provider)
+                    != cfg.provider.driver().selected_model(&cfg)
                     && endpoint == crate::provider::ENDPOINT
                 {
                     return Err(Error(5, "adapter policy".into()));
