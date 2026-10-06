@@ -10,12 +10,50 @@ use std::{
 
 pub const CANDIDATE_LIMIT_MAX: usize = 254;
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Provider {
+    #[default]
+    #[serde(rename = "jev")]
+    Jev,
+    #[serde(rename = "clef-flash")]
+    ClefFlash,
+}
+impl Provider {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Jev => "jev",
+            Self::ClefFlash => "clef-flash",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Jev => "Jev",
+            Self::ClefFlash => "Clef-Flash",
+        }
+    }
+    pub fn env_key(self) -> &'static str {
+        match self {
+            Self::Jev => "TYPESAFE_API_KEY",
+            Self::ClefFlash => "CLOUDFLARE_AUTH_TOKEN",
+        }
+    }
+}
+fn environment_source() -> String {
+    "environment".into()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
     pub language: String,
     pub credential: String,
+    #[serde(default)]
+    pub provider: Provider,
+    #[serde(default)]
+    pub cloudflare_account_id: String,
+    #[serde(default = "environment_source")]
+    pub cloudflare_credential: String,
     pub tracking: bool,
     pub semantic: bool,
     pub consent: String,
@@ -32,6 +70,9 @@ impl Default for Config {
             schema_version: 3,
             language: "auto".into(),
             credential: "environment".into(),
+            provider: Provider::Jev,
+            cloudflare_account_id: String::new(),
+            cloudflare_credential: environment_source(),
             tracking: true,
             semantic: false,
             consent: "ask".into(),
@@ -300,11 +341,26 @@ impl Policy {
 }
 
 impl Config {
+    pub fn credential_source(&self) -> &str {
+        match self.provider {
+            Provider::Jev => &self.credential,
+            Provider::ClefFlash => &self.cloudflare_credential,
+        }
+    }
+    pub fn set_credential_source(&mut self, source: &str) {
+        match self.provider {
+            Provider::Jev => self.credential = source.into(),
+            Provider::ClefFlash => self.cloudflare_credential = source.into(),
+        }
+    }
     pub fn validate(&self) -> Result<()> {
         if !["auto", "en", "zh"].contains(&self.language.as_str()) {
             return Err(Error(7, "language expects auto, en or zh".into()));
         }
         if !["environment", "system"].contains(&self.credential.as_str())
+            || !["environment", "system"].contains(&self.cloudflare_credential.as_str())
+            || (!self.cloudflare_account_id.is_empty()
+                && !crate::provider::valid_account_id(&self.cloudflare_account_id))
             || self.schema_version != 3
             || !["ask", "always"].contains(&self.consent.as_str())
             || !["strict", "balanced", "full"].contains(&self.privacy.as_str())

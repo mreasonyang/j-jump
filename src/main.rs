@@ -22,7 +22,7 @@ mod wait_ui;
     name = "jjump",
     bin_name = "jjump",
     version,
-    about = "Private local directory navigation. Optional Jev suggestions always require selection.",
+    about = "Private local directory navigation. Optional Jev or Clef-Flash suggestions always require selection.",
     after_help = "Connect your shell automatically: jjump shell install\nFirst j/ji opens setup; edit later: jjump setup\nZsh: eval \"$(jjump init zsh)\"\nBash: eval \"$(jjump init bash)\"\nFish: jjump init fish | source\nUse j QUERY, j -- PATH, j -, ji QUERY.\nNo key/network is required for local navigation. Exit codes: 2 input, 3 no match, 4 selection required, 5 provider, 6 path, 7 state, 130 cancelled."
 )]
 struct Cli {
@@ -37,7 +37,7 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Request Jev even with local matches; selection required"
+        help = "Request the selected provider even with local matches; selection required"
     )]
     force_semantic: bool,
     #[command(subcommand)]
@@ -90,7 +90,7 @@ enum Command {
     },
     /// Configure step by step in your terminal; first setup saves on completion.
     Setup,
-    /// Store or remove the Jev key in the OS credential store
+    /// Store or remove the selected provider key in the OS credential store
     Credential {
         #[command(subcommand)]
         action: CredentialCommand,
@@ -100,7 +100,7 @@ enum Command {
         #[command(subcommand)]
         action: ConfigCommand,
     },
-    /// Check settings, visit history and Jev readiness (no network)
+    /// Check settings, visit history and provider readiness (no network)
     Doctor {
         #[arg(long)]
         json: bool,
@@ -111,24 +111,24 @@ enum Command {
         json: bool,
         terms: Vec<String>,
     },
-    /// Show exactly what a Jev request would send (no network)
+    /// Show exactly what the selected provider request would send (no network)
     Preview { terms: Vec<String> },
     /// List, back up, restore, prune or delete visit history
     History {
         #[command(subcommand)]
         action: HistoryCommand,
     },
-    /// Clear cached Jev answers; history and keys are kept
+    /// Clear cached semantic answers; history and keys are kept
     Cache {
         #[command(subcommand)]
         action: ClearCommand,
     },
-    /// Clear visit history and cached Jev answers
+    /// Clear visit history and cached semantic answers
     Data {
         #[command(subcommand)]
         action: ClearCommand,
     },
-    /// Show or stop the background Jev helper
+    /// Show or stop the background semantic helper
     Adapter {
         #[command(subcommand)]
         action: AdapterCommand,
@@ -263,7 +263,7 @@ impl Drop for TerminalSignals {
         }
     }
 }
-fn read_secret() -> Result<zeroize::Zeroizing<String>> {
+fn read_secret(provider: j_jump::config::Provider) -> Result<zeroize::Zeroizing<String>> {
     let mut f = tty()?;
     let mut mode = std::mem::MaybeUninit::<libc::termios>::uninit();
     if unsafe { libc::tcgetattr(f.as_raw_fd(), mode.as_mut_ptr()) } != 0 {
@@ -284,10 +284,11 @@ fn read_secret() -> Result<zeroize::Zeroizing<String>> {
     };
     write!(
         f,
-        "{}",
+        "{} {}",
+        provider.label(),
         ui::tr(
-            "Jev API key (hidden; Enter keeps current choice): ",
-            "Jev API Key（隐藏输入；Enter 保留当前选择）："
+            "API key (hidden; Enter keeps current choice): ",
+            "API Key（隐藏输入；Enter 保留当前选择）："
         )
     )
     .and_then(|_| f.flush())
@@ -404,7 +405,7 @@ fn ask(prompt: &str) -> Result<String> {
         }
     }
 }
-fn pick(candidates: &[Candidate], suggested: Option<&str>) -> Result<PathBuf> {
+fn pick(candidates: &[Candidate], suggested: Option<&str>, provider: &str) -> Result<PathBuf> {
     ui::load_preferences();
     if candidates.is_empty() {
         return Err(Error(
@@ -416,7 +417,13 @@ fn pick(candidates: &[Candidate], suggested: Option<&str>) -> Result<PathBuf> {
     match std::env::var("J_JUMP_PICKER").as_deref() {
         Err(std::env::VarError::NotPresent) | Ok("numbered") => {}
         Ok("fzf") => {
-            return j_jump::picker::fuzzy(&f, candidates, suggested, ui::tr("en", "zh") == "zh");
+            return j_jump::picker::fuzzy_for(
+                &f,
+                candidates,
+                suggested,
+                ui::tr("en", "zh") == "zh",
+                provider,
+            );
         }
         _ => return Err(Error(2, "J_JUMP_PICKER expects numbered or fzf".into())),
     }
@@ -435,7 +442,7 @@ fn pick(candidates: &[Candidate], suggested: Option<&str>) -> Result<PathBuf> {
                 .map_err(|_| Error(130, "terminal closed".into()))?;
         }
         if suggested.is_some() {
-            writeln!(f, "Jev suggestion: first; choose explicitly")
+            writeln!(f, "{provider} suggestion: first; choose explicitly")
                 .map_err(|_| Error(130, "terminal closed".into()))?;
         }
         writeln!(f, "{}", ui::tr("Choose a directory", "选择目录"))
@@ -456,9 +463,9 @@ fn pick(candidates: &[Candidate], suggested: Option<&str>) -> Result<PathBuf> {
             .take(page_size)
         {
             let label = if Some(c.id.as_str()) == suggested {
-                " [Jev]"
+                format!(" [{provider}]")
             } else {
-                ""
+                String::new()
             };
             let prefix = format!("{}. ", i + 1);
             let shown = ui::suffix(
@@ -615,6 +622,7 @@ fn query(
                 weight: 0.0,
             }],
             None,
+            "Jev",
         )?);
     }
     let policy_read = paths.policy_lock()?;
@@ -647,13 +655,18 @@ fn query(
     if wants_force && semantic_wanted && !credential_ready {
         return Err(Error(
             5,
-            "forced Jev needs a key; add one with jjump setup or TYPESAFE_API_KEY".into(),
+            format!(
+                "forced {} needs a key; {}",
+                cfg.provider.label(),
+                ui::missing_key_notice(&cfg)
+            )
+            .into(),
         ));
     }
     if wants_force && !semantic_request {
         return Err(Error(
             5,
-            "forced Jev requires semantic enabled and an interactive terminal; use --offline for local navigation".into(),
+            format!("forced {} requires semantic enabled and an interactive terminal; use --offline for local navigation", cfg.provider.label()).into(),
         ));
     }
     let force_route = wants_force;
@@ -716,7 +729,7 @@ fn query(
         ));
     }
     if semantic_wanted && !credential_ready {
-        eprintln!("{}", ui::missing_key_notice());
+        eprintln!("{}", ui::missing_key_notice(&cfg));
     }
     // Picker and semantic routes still need the full eligible local set.
     let local: Vec<_> = ranked_lexical
@@ -759,7 +772,7 @@ fn query(
             let (payload, sent) = provider::request(&query, &candidates, &cwd, paths, &cfg)?;
             candidates.truncate(sent);
             let prep_elapsed = semantic_prep.elapsed();
-            let allow=cfg.consent=="always"||ask(&format!("Send query and {} eligible directory names to Jev ({}, default network)? [y/N] ",candidates.len(),cfg.privacy))?.eq_ignore_ascii_case("y");
+            let allow=cfg.consent=="always"||ask(&format!("Send query and {} eligible directory names to {} ({}, default network)? [y/N] ",candidates.len(),cfg.provider.label(),cfg.privacy))?.eq_ignore_ascii_case("y");
             if allow {
                 let deadline =
                     Instant::now() + adapter::INTERACTIVE_DEADLINE.saturating_sub(prep_elapsed);
@@ -807,7 +820,7 @@ fn query(
                     });
                     let _ = tx.send(result);
                 });
-                let waited = wait_ui::wait_for_jev(tty()?, rx, deadline);
+                let waited = wait_ui::wait_for_provider(tty()?, rx, deadline, cfg.provider.label());
                 abort.abort();
                 // Confirm caller-owned locks are released before opening local
                 // picks or returning cancellation. HTTP completion is detached.
@@ -820,12 +833,14 @@ fn query(
                 }
                 match waited? {
                     Some(Ok((s, epoch))) => {
-                        suggested = Some(s.ok_or(Error(3, "Jev found no reliable match; use jjump --offline query --interactive to browse locally".into()))?);
+                        suggested = Some(s.ok_or(Error(3, format!("{} found no reliable match; use jjump --offline query --interactive to browse locally", cfg.provider.label()).into()))?);
                         if suggested.is_some() {
                             semantic_epoch = Some(epoch);
                         }
                     }
-                    Some(Err(e)) => return Err(e),
+                    Some(Err(e)) => {
+                        return Err(Error(e.0, e.1.replace("Jev", cfg.provider.label()).into()));
+                    }
                     None => local_choice = true,
                 }
                 db.db
@@ -876,7 +891,7 @@ fn query(
     if identities.is_none() {
         identities = Some(engine::identities(&choices));
     }
-    let target = pick(&choices, suggested.as_deref())?;
+    let target = pick(&choices, suggested.as_deref(), cfg.provider.label())?;
     if let Some(epoch) = semantic_epoch {
         let _lock = paths.credential_lock(false)?;
         if paths.credential_epoch()? != epoch {
@@ -907,8 +922,8 @@ fn setup(paths: &Paths) -> Result<()> {
     setup_ui::run(paths)
 }
 fn credential_status(cfg: &Config) -> serde_json::Value {
-    let environment = std::env::var_os("TYPESAFE_API_KEY").is_some_and(|s| !s.is_empty());
-    json!({"source":if environment{"environment"}else{cfg.credential.as_str()},"present":if environment{Some(true)}else if cfg.credential=="system"{None}else{Some(false)},"system_store":"not accessed by offline status"})
+    let environment = j_jump::credential::environment_name(cfg.provider).is_some();
+    json!({"provider":cfg.provider.id(),"environment_variable":j_jump::credential::environment_name(cfg.provider),"source":if environment{"environment"}else{cfg.credential_source()},"present":if environment{Some(true)}else if cfg.credential_source()=="system"{None}else{Some(false)},"system_store":"not accessed by offline status"})
 }
 fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
     match cmd {
@@ -933,7 +948,8 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
                     }
                 );
                 println!(
-                    "semantic={} (effective={})\ntracking={}\nconsent={}\nprivacy={}\ncandidate_limit={}\nsemantic_route={}\nlanguage={}",
+                    "provider={}\nsemantic={} (effective={})\ntracking={}\nconsent={}\nprivacy={}\ncandidate_limit={}\nsemantic_route={}\nlanguage={}",
+                    cfg.provider.id(),
                     cfg.semantic,
                     cfg.semantic && !offline,
                     cfg.tracking,
@@ -1415,9 +1431,10 @@ fn run() -> Result<()> {
         )),
         Some(Command::Credential { action }) => match action {
             CredentialCommand::Status => {
+                let cfg = paths.load()?;
                 println!(
                     "{}",
-                    json!({"schema_version":1,"environment_present":std::env::var_os("TYPESAFE_API_KEY").is_some_and(|s|!s.is_empty()),"configured_source":paths.load()?.credential,"system_entry":"not accessed; status does not unlock credential store"})
+                    json!({"schema_version":1,"provider":cfg.provider.id(),"environment_present":j_jump::credential::environment_name(cfg.provider).is_some(),"configured_source":cfg.credential_source(),"system_entry":"not accessed; status does not unlock credential store"})
                 );
                 Ok(())
             }
@@ -1425,8 +1442,8 @@ fn run() -> Result<()> {
                 let _ = tty()?;
                 let fingerprint = paths.fingerprint()?;
                 let cfg = paths.load()?;
-                j_jump::credential::system()?;
-                let secret = read_secret()?;
+                j_jump::credential::system_for(cfg.provider)?;
+                let secret = read_secret(cfg.provider)?;
                 j_jump::credential::save_config(&paths, &cfg, &fingerprint, &secret)?;
                 eprintln!(
                     "Stored in OS credential store. Network settings unchanged; environment override remains higher priority."
@@ -1437,7 +1454,7 @@ fn run() -> Result<()> {
                 if apply {
                     let _credential_lock = paths.credential_lock(true)?;
                     paths.rotate_credential_epoch()?;
-                    j_jump::credential::delete()?;
+                    j_jump::credential::delete_for(paths.load()?.provider)?;
                 }
                 println!(
                     "J-Jump owned OS credential entry {}. Environment and provider account key are unchanged; revoke at the provider separately.",
@@ -1464,9 +1481,11 @@ fn run() -> Result<()> {
             });
             let config_ok = cfg.is_ok();
             let store_ok = store_check.as_ref().is_some_and(|r| r.is_ok());
-            let ready = cfg.as_ref().is_ok_and(|c| c.semantic)
-                && std::env::var_os("TYPESAFE_API_KEY").is_some_and(|s| !s.is_empty())
-                && !offline;
+            let ready = cfg.as_ref().is_ok_and(|c| {
+                c.semantic
+                    && j_jump::credential::environment_name(c.provider).is_some()
+                    && provider::account_id(c).is_ok()
+            }) && !offline;
             let healthy = config_ok && store_ok;
             let config_error = cfg.as_ref().err().map(|e| e.1.as_ref());
             let store_error = store_check
@@ -1497,7 +1516,7 @@ fn run() -> Result<()> {
             if json {
                 println!(
                     "{}",
-                    json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"configuration":if config_ok{"ok"}else{"invalid"},"store":if store_ok{"ok"}else{"unavailable"},"cause":cause,"provider":"jev","provider_configured":cfg.as_ref().is_ok_and(|c|c.semantic),"environment_ready":ready,"credential":cfg.as_ref().ok().map(credential_status),"provider_test":"not run","shell_activation":"not verified by child process","offline":offline,"automatic_quality_approved":false,"next":next})
+                    json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"configuration":if config_ok{"ok"}else{"invalid"},"store":if store_ok{"ok"}else{"unavailable"},"cause":cause,"provider":cfg.as_ref().ok().map(|c| c.provider.id()),"provider_configured":cfg.as_ref().is_ok_and(|c|c.semantic),"environment_ready":ready,"credential":cfg.as_ref().ok().map(credential_status),"provider_test":"not run","shell_activation":"not verified by child process","offline":offline,"automatic_quality_approved":false,"next":next})
                 );
             } else {
                 println!("J-Jump {}", env!("CARGO_PKG_VERSION"));

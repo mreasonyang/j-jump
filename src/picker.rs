@@ -18,7 +18,7 @@ impl Drop for Restore {
         unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.mode) };
     }
 }
-fn records(candidates: &[Candidate], suggested: Option<&str>) -> Vec<Vec<u8>> {
+fn records(candidates: &[Candidate], suggested: Option<&str>, provider: &str) -> Vec<Vec<u8>> {
     candidates
         .iter()
         .enumerate()
@@ -27,9 +27,9 @@ fn records(candidates: &[Candidate], suggested: Option<&str>) -> Vec<Vec<u8>> {
                 "{i}\t{}{}",
                 crate::display(&c.path.to_string_lossy()),
                 if Some(c.id.as_str()) == suggested {
-                    " [Jev suggestion]"
+                    format!(" [{provider} suggestion]")
                 } else {
-                    ""
+                    String::new()
                 }
             )
             .into_bytes()
@@ -52,6 +52,15 @@ pub fn fuzzy(
     candidates: &[Candidate],
     suggested: Option<&str>,
     chinese: bool,
+) -> Result<PathBuf> {
+    fuzzy_for(tty, candidates, suggested, chinese, "Jev")
+}
+pub fn fuzzy_for(
+    tty: &File,
+    candidates: &[Candidate],
+    suggested: Option<&str>,
+    chinese: bool,
+    provider: &str,
 ) -> Result<PathBuf> {
     let unavailable = || {
         Error(
@@ -79,7 +88,7 @@ pub fn fuzzy(
             return Err(unavailable());
         }
     }
-    let rows = records(candidates, suggested);
+    let rows = records(candidates, suggested, provider);
     let executable = std::env::var_os("PATH").and_then(|path| {
         std::env::split_paths(&path).find_map(|dir| {
             use std::os::unix::fs::PermissionsExt;
@@ -144,7 +153,7 @@ pub fn fuzzy(
             .unwrap_or_default()
             .to_string_lossy();
         cmd.arg(format!(
-            "--header=Jev suggestion: {} | Enter select | Esc cancel",
+            "--header={provider} suggestion: {} | Enter select | Esc cancel",
             crate::display(&name)
         ));
     }
@@ -203,7 +212,7 @@ mod tests {
             last_seen: 0,
             weight: 0.0,
         }];
-        let rows = records(&candidates, Some("x"));
+        let rows = records(&candidates, Some("x"), "Jev");
         assert!(!rows[0].contains(&27));
         assert_eq!(rows[0].iter().filter(|b| **b == b'\t').count(), 1);
         let mut good = rows[0].clone();

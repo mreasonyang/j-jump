@@ -162,7 +162,7 @@ class UXTasks(unittest.TestCase):
     def test_setup_invalid_input_retry_back_and_save(self):
         with self.process('setup') as t:
             t.until(b'Semantic provider'); t.send('jve\n')
-            t.until(b'choose off or jev'); t.send('jev\n')
+            t.until(b'choose off, jev or clef-flash'); t.send('jev\n')
             t.until(b'Network permission'); t.send('always\n')
             t.until(b'Fields'); t.send('invalid\n')
             t.until(b'privacy expects'); t.send('b\n')

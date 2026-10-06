@@ -1,13 +1,20 @@
 //! Secrets use only the environment or a named OS credential entry; no file fallback.
 use crate::{
     Error, Result,
-    config::{Config, Paths},
+    config::{Config, Paths, Provider},
 };
 use zeroize::Zeroizing;
 const SERVICE: &str = "j-jump.jev";
 const ACCOUNT: &str = "typesafe-api-key";
-fn entry() -> Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, ACCOUNT).map_err(|_| {
+pub fn entry_identity(provider: Provider) -> (&'static str, &'static str) {
+    match provider {
+        Provider::Jev => (SERVICE, ACCOUNT),
+        Provider::ClefFlash => ("j-jump.cloudflare", "workers-ai-api-token"),
+    }
+}
+fn entry(provider: Provider) -> Result<keyring::Entry> {
+    let (service, account) = entry_identity(provider);
+    keyring::Entry::new(service, account).map_err(|_| {
         Error(
             5,
             "system credential store unavailable; use environment or semantic off".into(),
@@ -15,7 +22,10 @@ fn entry() -> Result<keyring::Entry> {
     })
 }
 pub fn system() -> Result<Option<Zeroizing<String>>> {
-    match entry()?.get_password() {
+    system_for(Provider::Jev)
+}
+pub fn system_for(provider: Provider) -> Result<Option<Zeroizing<String>>> {
+    match entry(provider)?.get_password() {
         Ok(s) => Ok(Some(Zeroizing::new(s))),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(_) => Err(Error(
@@ -25,20 +35,46 @@ pub fn system() -> Result<Option<Zeroizing<String>>> {
     }
 }
 pub fn get(source: &str) -> Result<Zeroizing<String>> {
-    if let Ok(s) = std::env::var("TYPESAFE_API_KEY")
-        && !s.is_empty()
-    {
-        return Ok(Zeroizing::new(s));
+    get_for(Provider::Jev, source)
+}
+pub fn environment_name(provider: Provider) -> Option<&'static str> {
+    [
+        Some(provider.env_key()),
+        (provider == Provider::ClefFlash).then_some("CLOUDFLARE_API_TOKEN"),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
+}
+pub fn get_for(provider: Provider, source: &str) -> Result<Zeroizing<String>> {
+    if let Some(name) = environment_name(provider) {
+        let s = Zeroizing::new(
+            std::env::var(name)
+                .map_err(|_| Error(5, "credential environment value is not valid UTF-8".into()))?,
+        );
+        validate(&s)?;
+        return Ok(s);
     }
     if source == "system" {
-        return system()?.ok_or(Error(
+        let secret = system_for(provider)?.ok_or(Error(
             5,
-            "stored Jev key missing; use credential set or semantic off".into(),
-        ));
+            format!(
+                "stored {} key missing; use credential set or semantic off",
+                provider.label()
+            )
+            .into(),
+        ))?;
+        validate(&secret)?;
+        return Ok(secret);
     }
     Err(Error(
         5,
-        "Jev key absent; set TYPESAFE_API_KEY or run credential set".into(),
+        format!(
+            "{} key absent; set {} or run credential set",
+            provider.label(),
+            provider.env_key()
+        )
+        .into(),
     ))
 }
 pub fn validate(secret: &str) -> Result<()> {
@@ -52,8 +88,11 @@ pub fn validate(secret: &str) -> Result<()> {
     Ok(())
 }
 pub fn set(secret: &str) -> Result<()> {
+    set_for(Provider::Jev, secret)
+}
+pub fn set_for(provider: Provider, secret: &str) -> Result<()> {
     validate(secret)?;
-    entry()?.set_password(secret).map_err(|_| {
+    entry(provider)?.set_password(secret).map_err(|_| {
         Error(
             5,
             "system credential save failed; no plaintext fallback".into(),
@@ -61,7 +100,10 @@ pub fn set(secret: &str) -> Result<()> {
     })
 }
 pub fn delete() -> Result<()> {
-    match entry()?.delete_credential() {
+    delete_for(Provider::Jev)
+}
+pub fn delete_for(provider: Provider) -> Result<()> {
+    match entry(provider)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(_) => Err(Error(
             5,
@@ -75,21 +117,21 @@ trait Store {
     fn put(&self, secret: &str) -> Result<()>;
     fn remove(&self) -> Result<()>;
 }
-struct SystemStore;
+struct SystemStore(Provider);
 impl Store for SystemStore {
     fn get(&self) -> Result<Option<Zeroizing<String>>> {
-        system()
+        system_for(self.0)
     }
     fn put(&self, secret: &str) -> Result<()> {
-        set(secret)
+        set_for(self.0, secret)
     }
     fn remove(&self) -> Result<()> {
-        delete()
+        delete_for(self.0)
     }
 }
 /// Save a pending secret at setup completion or explicit save, compensating a config failure.
 pub fn save_config(paths: &Paths, cfg: &Config, expected: &str, secret: &str) -> Result<()> {
-    save_using(paths, cfg, expected, secret, &SystemStore)
+    save_using(paths, cfg, expected, secret, &SystemStore(cfg.provider))
 }
 fn save_using(
     paths: &Paths,
@@ -100,7 +142,7 @@ fn save_using(
 ) -> Result<()> {
     validate(secret)?;
     let mut next = cfg.clone();
-    next.credential = "system".into();
+    next.set_credential_source("system");
     next.validate()?;
     let _lock = paths.credential_lock(true)?;
     if paths.fingerprint()? != expected {

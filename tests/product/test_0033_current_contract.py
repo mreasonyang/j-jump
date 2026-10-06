@@ -34,7 +34,8 @@ class CurrentContract(unittest.TestCase):
         self.assertEqual(current['schema_version'], 3)
         invalid = [{}, dict(current, schema_version=1), dict(current, schema_version=2), dict(current, request_limit=10), dict(current, schema_version=99),
                    dict(current, proxy='none'), dict(current, legacy=True)]
-        invalid.extend({k: v for k, v in current.items() if k != field} for field in current)
+        invalid.extend({k: v for k, v in current.items() if k != field}
+                       for field in current if field not in {"provider", "cloudflare_account_id", "cloudflare_credential"})
         for value in invalid:
             with self.subTest(keys=list(value)):
                 config.write_text(json.dumps(value))
@@ -108,13 +109,14 @@ class CurrentContract(unittest.TestCase):
         self.state = self.root / ('state-' + suffix)
         self.env['J_JUMP_HOME'] = str(self.state)
         self.env['TYPESAFE_API_KEY'] = 'synthetic-current-contract-key'
+        self.env.setdefault('HTTPS_PROXY', 'http://127.0.0.1:1')
         self.seed()
         for key, value in [('semantic', 'on'), ('consent', 'always'), ('tracking', 'off')]:
             self.cli('config', 'set', key, value)
 
     def runtime(self):
         keys = ('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy', 'REQUEST_METHOD')
-        profile = os.fsencode(self.config()) + b'\0' + os.fsencode(self.state / 'cache') + b'\0adapter-v4'
+        profile = os.fsencode(self.config()) + b'\0' + os.fsencode(self.state / 'cache') + b'\0adapter-v5'
         profile += b''.join(k.encode() + b'\0' + self.env.get(k, '').encode() + b'\0' for k in keys)
         return pathlib.Path('/private/tmp' if os.uname().sysname == 'Darwin' else '/tmp') / ('jj-' + str(os.geteuid()) + '-' + hashlib.sha256(profile).hexdigest()[:24])
 
@@ -143,6 +145,9 @@ class CurrentContract(unittest.TestCase):
                         conn.settimeout(2)
                         size = struct.unpack('>I', self.recv_exact(conn, 4))[0]
                         frame = json.loads(self.recv_exact(conn, size)); frames.append(frame['kind'])
+                        if self.env.get('CLOUDFLARE_AUTH_TOKEN'):
+                            self.assertEqual(frame['account_id'], self.env['CLOUDFLARE_ACCOUNT_ID'])
+                            self.assertEqual(frame['key'], self.env['CLOUDFLARE_AUTH_TOKEN'])
                         if outcome == 'deadline':
                             stop.wait(12); continue
                         req = json.loads(frame['payload']); ids = list(req['questions']['destination']['criteria'])
@@ -151,8 +156,11 @@ class CurrentContract(unittest.TestCase):
                                   'probabilities': {k: float(k == choice) for k in ids}}
                         answers = {k: {'type': 'noul', 'noul': 1.0} for k in req['questions'] if k != 'destination'}
                         answers['destination'] = answer
-                        body = json.dumps({'model': req['model'], 'answers': answers})
-                        reply = {'version': 4, 'id': frame['id'], 'status': 'auth' if outcome == 'error' else 'ok',
+                        body = {'model': req['model'], 'answers': answers}
+                        if req['model'] == 'clef-flash':
+                            body = {'result': body, 'success': True, 'errors': [], 'messages': []}
+                        body = json.dumps(body)
+                        reply = {'version': 5, 'id': frame['id'], 'status': 'auth' if outcome == 'error' else 'ok',
                                  'body': 'not-json' if outcome == 'invalid' else body}
                         if outcome == 'binding': reply['id'] = 'bad-binding'
                         data = json.dumps(reply).encode(); conn.sendall(struct.pack('>I', len(data)) + data)

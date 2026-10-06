@@ -21,7 +21,7 @@ use std::{
 };
 use zeroize::Zeroize;
 
-const VERSION: u8 = 4;
+const VERSION: u8 = 5;
 // A runtime directory may only be reclaimed once it has had no live owner for
 // at least this long. A shorter window risks racing a concurrent invocation
 // that has created its directory but not yet taken its instance lock.
@@ -73,6 +73,7 @@ enum Wire {
         id: String,
         fingerprint: String,
         credential_epoch: String,
+        account_id: String,
         remaining_ms: u64,
         deadline_tick_ns: u64,
         key: String,
@@ -171,22 +172,24 @@ fn runtime_base() -> &'static Path {
 /// Pure path computation. Only the adapter's own start creates the directory, so
 /// a mere connect/status probe never materialises a new runtime directory.
 fn profile_id(paths: &Paths) -> String {
+    let protocol = format!("\0adapter-v{VERSION}");
     crate::digest(
         &[
             paths.config.as_os_str().as_encoded_bytes(),
             b"\0",
             paths.cache.as_os_str().as_encoded_bytes(),
-            b"\0adapter-v4",
+            protocol.as_bytes(),
         ]
         .concat(),
     )
 }
 fn runtime_path(paths: &Paths) -> PathBuf {
+    let protocol = format!("\0adapter-v{VERSION}");
     let mut profile = [
         paths.config.as_os_str().as_encoded_bytes(),
         b"\0",
         paths.cache.as_os_str().as_encoded_bytes(),
-        b"\0adapter-v4",
+        protocol.as_bytes(),
     ]
     .concat();
     profile.extend_from_slice(&proxy_env_identity());
@@ -530,11 +533,36 @@ pub fn ready(paths: &Paths, deadline: Instant, abort: &Abort) -> Result<UnixStre
     Err(unavailable())
 }
 #[allow(clippy::too_many_arguments)]
-pub fn exchange(
+#[cfg(test)]
+fn exchange(
+    stream: UnixStream,
+    id: &str,
+    fingerprint: &str,
+    credential_epoch: &str,
+    key: &mut String,
+    payload: &[u8],
+    deadline: Instant,
+    abort: &Abort,
+) -> Result<Vec<u8>> {
+    exchange_for(
+        stream,
+        id,
+        fingerprint,
+        credential_epoch,
+        "",
+        key,
+        payload,
+        deadline,
+        abort,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn exchange_for(
     mut stream: UnixStream,
     id: &str,
     fingerprint: &str,
     credential_epoch: &str,
+    account_id: &str,
     key: &mut String,
     payload: &[u8],
     deadline: Instant,
@@ -544,6 +572,7 @@ pub fn exchange(
     if id.len() != 32
         || fingerprint.len() > 128
         || credential_epoch.len() > 64
+        || account_id.len() > 32
         || key.len() > 4096
         || payload.len() > 65536
     {
@@ -557,6 +586,7 @@ pub fn exchange(
         id: id.into(),
         fingerprint: fingerprint.into(),
         credential_epoch: credential_epoch.into(),
+        account_id: account_id.into(),
         remaining_ms: remaining(deadline)?.as_millis() as u64,
         deadline_tick_ns: monotonic_ns()? + remaining(deadline)?.as_nanos() as u64,
         key: std::mem::take(key),
@@ -855,6 +885,7 @@ fn process(
                 id,
                 fingerprint,
                 credential_epoch,
+                account_id,
                 remaining_ms,
                 deadline_tick_ns,
                 key,
@@ -887,8 +918,16 @@ fn process(
                     key.zeroize();
                     return Err(Error(5, "adapter credential".into()));
                 }
-                if !paths.load().is_ok_and(|cfg| cfg.semantic) {
+                let cfg = paths.load()?;
+                if !cfg.semantic {
                     key.zeroize();
+                    return Err(Error(5, "adapter policy".into()));
+                }
+                let selected_endpoint = crate::provider::endpoint(cfg.provider, account_id)?;
+                if crate::provider::strict_json(payload.as_bytes())?["model"]
+                    != crate::provider::model(cfg.provider)
+                    && endpoint == crate::provider::ENDPOINT
+                {
                     return Err(Error(5, "adapter policy".into()));
                 }
                 if !crate::provider::dispatch_authorized(&paths, &id)? {
@@ -942,7 +981,11 @@ fn process(
                 let (tx, rx) = std::sync::mpsc::sync_channel(1);
                 let (http, url, body, worker_state, worker_detached) = (
                     client.clone(),
-                    endpoint.to_owned(),
+                    if endpoint == crate::provider::ENDPOINT {
+                        selected_endpoint
+                    } else {
+                        endpoint.to_owned()
+                    },
                     payload.clone(),
                     state.clone(),
                     detached.clone(),
@@ -1273,7 +1316,84 @@ mod tests {
             std::ffi::OsStr::new(&old_name)
         );
     }
-    fn read_http_request(stream: &mut TcpStream) {
+    #[test]
+    fn cloudflare_request_crosses_ipc_with_its_account_and_token() {
+        let (_temp, paths, _) = fixture();
+        let account = "00000000000000000000000000000001";
+        let mut cfg = paths.load().unwrap();
+        cfg.provider = crate::config::Provider::ClefFlash;
+        cfg.cloudflare_account_id = account.into();
+        paths.save(&cfg, &paths.fingerprint().unwrap()).unwrap();
+        let fingerprint = paths.fingerprint().unwrap();
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "model":"clef-flash", "state":{"query":"backend"},
+            "questions":{"destination":{"type":"choice","instructions":"Choose", "criteria":{"d1":"server", "none":"No match"}}}
+        })).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/client/v4/accounts/{account}/ai/run/@cf/cloudflare/clef-flash",
+            listener.local_addr().unwrap()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut http, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut http);
+            let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+            let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+            assert!(headers.starts_with(&format!(
+                "post /client/v4/accounts/{account}/ai/run/@cf/cloudflare/clef-flash "
+            )));
+            assert!(headers.contains("authorization: bearer synthetic-cloudflare-token"));
+            let body: serde_json::Value = serde_json::from_slice(&request[end + 4..]).unwrap();
+            assert_eq!(body["model"], "clef-flash");
+            let response = serde_json::json!({"success":true,"errors":[],"messages":[],"result":{
+                "model":"clef-flash","answers":{"destination":{"type":"choice","choice":"d1","probabilities":{"d1":0.9,"none":0.1},"confidence":0.9}},"usage":{"input_tokens":1,"output_tokens":0}
+            }}).to_string();
+            write!(
+                http,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            )
+            .unwrap();
+        });
+        let (caller, helper) = UnixStream::pair().unwrap();
+        let task = std::thread::spawn(move || {
+            process(
+                helper,
+                paths,
+                reqwest::blocking::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap(),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicUsize::new(0)),
+                &url,
+            )
+        });
+        let mut key = "synthetic-cloudflare-token".into();
+        let body = exchange_for(
+            caller,
+            "00000000000000000000000000000001",
+            &fingerprint,
+            "absent",
+            account,
+            &mut key,
+            &payload,
+            Instant::now() + Duration::from_secs(3),
+            &Abort::new(),
+        )
+        .unwrap();
+        assert!(key.is_empty());
+        assert_eq!(
+            crate::provider::validate(&body, &payload).unwrap(),
+            Some("d1".into())
+        );
+        task.join().unwrap();
+        server.join().unwrap();
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {
         // A read may contain only headers. Closing with an unread request body
         // can reset the connection on Linux and hide the fixture's HTTP status.
         stream
@@ -1296,7 +1416,7 @@ mod tests {
                     })
                     .unwrap();
                 if data.len() >= end + 4 + length {
-                    break;
+                    return data;
                 }
             }
         }

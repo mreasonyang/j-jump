@@ -1,6 +1,6 @@
 use crate::{
     Error, Result,
-    config::{CANDIDATE_LIMIT_MAX, Config, Paths, private_dir, private_file},
+    config::{CANDIDATE_LIMIT_MAX, Config, Paths, Provider, private_dir, private_file},
     engine::Group,
 };
 use rusqlite::OptionalExtension;
@@ -16,7 +16,40 @@ use std::{
 };
 pub const MODEL: &str = "jev-1.13.0";
 pub const ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
+pub const CLEF_FLASH_MODEL: &str = "clef-flash";
 pub const PROMPT: &str = "directory-product-2";
+pub fn model(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Jev => MODEL,
+        Provider::ClefFlash => CLEF_FLASH_MODEL,
+    }
+}
+pub fn valid_account_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+pub fn account_id(cfg: &Config) -> Result<String> {
+    if cfg.provider == Provider::Jev {
+        return Ok(String::new());
+    }
+    let id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| cfg.cloudflare_account_id.clone());
+    if !valid_account_id(&id) {
+        return Err(Error(5, "Clef-Flash requires a 32-character hexadecimal Cloudflare Account ID; use jjump setup or CLOUDFLARE_ACCOUNT_ID".into()));
+    }
+    Ok(id)
+}
+/// Only official endpoints are constructible; account IDs cannot add URL components.
+pub fn endpoint(provider: Provider, account: &str) -> Result<String> {
+    match provider {
+        Provider::Jev if account.is_empty() => Ok(ENDPOINT.into()),
+        Provider::ClefFlash if valid_account_id(account) => Ok(format!(
+            "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/@cf/cloudflare/clef-flash"
+        )),
+        _ => Err(Error(5, "invalid provider/account binding".into())),
+    }
+}
 // Preserve strict duplicate-key rejection before interpreting any JSON as a decision.
 struct Strict(Value);
 impl<'de> Deserialize<'de> for Strict {
@@ -119,7 +152,11 @@ pub fn request(
     {
         return Err(Error(
             5,
-            "Jev request blocked by the privacy or size policy".into(),
+            format!(
+                "{} request blocked by the privacy or size policy",
+                cfg.provider.label()
+            )
+            .into(),
         ));
     }
     // Explicit paths in queries must resolve safely. Unknown relative path syntax also fails closed.
@@ -172,7 +209,7 @@ pub fn request(
                 "No uniquely supported destination, including ambiguity or insufficient evidence."
             ),
         );
-        serde_json::to_vec(&json!({"model": MODEL, "state": state, "questions": {"destination": {"type": "choice", "instructions": instructions, "criteria": criteria}}}))
+        serde_json::to_vec(&json!({"model": model(cfg.provider), "state": state, "questions": {"destination": {"type": "choice", "instructions": instructions, "criteria": criteria}}}))
             .map_err(|_| Error(5, "cannot encode payload".into()))
     };
     // Largest prefix that fits: binary search over the priority order.
@@ -186,7 +223,10 @@ pub fn request(
         }
     }
     if low == 0 {
-        return Err(Error(5, "Jev payload would exceed 64 KiB".into()));
+        return Err(Error(
+            5,
+            format!("{} payload would exceed 64 KiB", cfg.provider.label()).into(),
+        ));
     }
     Ok((encode(low)?, low))
 }
@@ -206,13 +246,34 @@ fn keys(v: &Value, want: &[&str]) -> bool {
 /// Validate a response against the exact request. Ok(None) is a legitimate
 /// abstention: `none`, a tie, or a top probability below one half.
 pub fn validate(bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
-    let v = strict_json(bytes)?;
+    let mut v = strict_json(bytes)?;
     let req: Value =
         serde_json::from_slice(request).map_err(|_| Error(5, "invalid request binding".into()))?;
+    let requested_model = req["model"]
+        .as_str()
+        .ok_or(Error(5, "invalid request model".into()))?;
+    if ![MODEL, CLEF_FLASH_MODEL].contains(&requested_model) {
+        return Err(Error(5, "unsupported request model".into()));
+    }
+    if requested_model == CLEF_FLASH_MODEL {
+        if !v.as_object().is_some_and(|m| {
+            m.keys()
+                .all(|k| ["result", "success", "errors", "messages"].contains(&k.as_str()))
+        }) || v["success"] != true
+            || !v["errors"].as_array().is_some_and(Vec::is_empty)
+            || v.get("messages").is_some_and(|m| !m.is_array())
+        {
+            return Err(Error(
+                5,
+                "Clef-Flash returned an invalid or unsuccessful Cloudflare response".into(),
+            ));
+        }
+        v = v["result"].take();
+    }
     if !v.as_object().is_some_and(|m| {
         m.keys()
             .all(|k| ["model", "answers", "usage"].contains(&k.as_str()))
-    }) || v["model"] != MODEL
+    }) || v["model"] != requested_model
     {
         return Err(Error(5, "provider model/schema mismatch".into()));
     }
@@ -374,10 +435,12 @@ impl ProviderState {
         let epoch = paths.credential_epoch()?;
         // Credential identity is part of the cache key. A rotated shell or OS key cannot
         // receive a response cached for a different credential.
-        let source = cfg.credential.clone();
+        let source = cfg.credential_source().to_owned();
+        let provider = cfg.provider;
+        let account = account_id(cfg)?;
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let _ = tx.send(crate::credential::get(&source));
+            let _ = tx.send(crate::credential::get_for(provider, &source));
         });
         let mut secret = loop {
             if abort.aborted() {
@@ -393,7 +456,12 @@ impl ProviderState {
                 Err(_) => return Err(Error(5, "credential lookup unavailable".into())),
             }
         };
-        let bound = format!("{binding}:{epoch}:{}", crate::digest(secret.as_bytes()));
+        let bound = format!(
+            "{binding}:{epoch}:{}:{}:{}",
+            provider.id(),
+            account,
+            crate::digest(secret.as_bytes())
+        );
         let decision =
             self.decide_until_abort(bytes, &bound, cfg, deadline, Some(abort), || {
                 let id = random_id()?;
@@ -401,11 +469,12 @@ impl ProviderState {
                 let stream = crate::adapter::ready(paths, deadline, abort)?;
                 self.mark_dispatch(&id, "MayHaveSent")?;
                 let mut key = std::mem::take(&mut *secret);
-                let result = crate::adapter::exchange(
+                let result = crate::adapter::exchange_for(
                     stream,
                     &id,
                     fingerprint,
                     &epoch,
+                    &account,
                     &mut key,
                     bytes,
                     deadline,
@@ -500,13 +569,26 @@ impl ProviderState {
         if !cfg.semantic {
             return Err(Error(5, "semantic networking is disabled".into()));
         }
+        let request_value = strict_json(bytes)?;
+        if request_value["model"] != model(cfg.provider) {
+            return Err(Error(
+                5,
+                "request does not match the selected provider".into(),
+            ));
+        }
         if Instant::now() >= deadline {
             return Err(Error(5, "Jev total request deadline elapsed".into()));
         }
         let key = crate::digest(
-            [PROMPT.as_bytes(), binding.as_bytes(), bytes]
-                .concat()
-                .as_slice(),
+            [
+                PROMPT.as_bytes(),
+                cfg.provider.id().as_bytes(),
+                cfg.cloudflare_account_id.as_bytes(),
+                binding.as_bytes(),
+                bytes,
+            ]
+            .concat()
+            .as_slice(),
         );
         let now = crate::now();
         let cached = self

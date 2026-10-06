@@ -50,11 +50,12 @@ jjump init fish | source
 
 ## 保存不等于可以联网
 
-Jev 开关、许可、发送字段和凭证分别配置。默认 off、ask、strict；没有请求次数设置或累计上限。选择 Jev 后会直接进入 API Key 设置：隐藏输入新 Key、保留已配置来源、使用已检测到的环境变量，或跳过。Key 仅在内存草稿中，完成向导时写入系统凭证库；取消或恢复默认会丢弃待保存 Key。凭证库写入失败会保留草稿，可在向导内重试或编辑。也可以暂不配凭证，页面会列出阻断原因；不会为了验证而自动请求。
+语义开关、服务商、许可、发送字段和凭证分别配置。服务商默认为 `jev`，可选 `clef-flash`。默认 off、ask、strict；没有请求次数设置或累计上限。选择 Jev 后会直接进入 API Key 设置；选择 Clef-Flash 则先填写 Cloudflare Account ID，再设置 API Token：隐藏输入新 Key、保留已配置来源、使用已检测到的环境变量，或跳过。Key 仅在内存草稿中，完成向导时写入系统凭证库；取消或恢复默认会丢弃待保存 Key。凭证库写入失败会保留草稿，可在向导内重试或编辑。也可以暂不配凭证，页面会列出阻断原因；不会为了验证而自动请求。
 
 - ask：每次请求前问；always：允许按所选隐私规则联网，不再逐次询问。
 - strict：查询及候选名；balanced：增加有限上下文；full：允许路径。名称/查询本身也可能敏感。
-- 环境变量 TYPESAFE_API_KEY 优先；在向导中输入或更换 Key，隐藏输入到 OS 存储，无明文 fallback，不需要额外执行凭证命令。独立的 `jjump credential set` 仍可用于专门管理凭证。状态命令不解锁/读取 OS key，因此“系统存储已配置”不等于已确认 key 存在或有效。
+- Jev 使用 TYPESAFE_API_KEY；Cloudflare 使用 CLOUDFLARE_AUTH_TOKEN（为空或缺失时使用 CLOUDFLARE_API_TOKEN），各自优先于对应系统凭证。CLOUDFLARE_ACCOUNT_ID 优先于保存的 cloudflare_account_id，必须是 32 位十六进制值。切换服务商会清除未保存的凭证草稿，但保留已保存的两家凭证。
+- `jjump credential status/set/delete` 只作用于所选服务商；在向导中输入或更换 Key，隐藏输入到 OS 存储，无明文 fallback，不需要额外执行凭证命令。独立的 `jjump credential set` 仍可用于专门管理凭证。状态命令不解锁/读取 OS key，因此“系统存储已配置”不等于已确认 key 存在或有效。
 - `--offline`/`J_JUMP_OFFLINE=1` 限制当前命令，不会改永久配置；凭证存在不代表联网许可。
 
 命令行可写键和值见 `jjump config set --help`。例如：
@@ -94,7 +95,7 @@ recover 不修复历史库，也无法替换被安全策略拒绝的符号链接
 
 默认从 LC_ALL、LC_MESSAGES、LANG 选择中/英文，未知 locale 用英文。`language=auto/en/zh` 为持久偏好，J_JUMP_LANG 覆盖它。核心引导/帮助/诊断与常见错误提供双语信息；技术键名、命令、稳定错误码、JSON和查询不翻译。Jev等待文案保持英文。NO_COLOR 下不依赖颜色；编号界面是逐行文本。
 
-开发期只接受当前完整格式：配置 schema 3、访问库 schema 4、备份 schema 3、缓存 schema 3。旧格式被拒绝且保持原样；不自动转换/迁移，也不提供旧版降级路径。需要独立文件状态时显式指定绝对路径 J_JUMP_HOME；它只重定向配置、访问库和缓存，不隔离系统凭证。所有文件 profile 共用当前 OS 用户的 `j-jump.jev` / `typesafe-api-key` 凭证项，凭证测试还须隔离 OS 服务。Linux 使用 XDG 路径，macOS 使用 Application Support/Caches；配置优先级为 `--config`、J_JUMP_CONFIG、默认路径，不读取工作目录中的项目配置。
+开发期只接受当前完整格式：配置 schema 3、访问库 schema 4、备份 schema 3、缓存 schema 3。配置 schema 3 新增默认值字段 provider、cloudflare_account_id、cloudflare_credential，原有完整 schema 3 配置可直接读取，默认仍为 Jev；不重写用户配置。旧格式被拒绝且保持原样；不自动转换/迁移，也不提供旧版降级路径。需要独立文件状态时显式指定绝对路径 J_JUMP_HOME；它只重定向配置、访问库和缓存，不隔离系统凭证。所有文件 profile 按服务商共用当前 OS 用户的凭证项：Jev 为 `j-jump.jev` / `typesafe-api-key`，Cloudflare 为 `j-jump.cloudflare` / `workers-ai-api-token`；凭证测试还须隔离 OS 服务。Linux 使用 XDG 路径，macOS 使用 Application Support/Caches；配置优先级为 `--config`、J_JUMP_CONFIG、默认路径，不读取工作目录中的项目配置。
 
 系统凭证、锁定/拒绝提示、完整平台覆盖、真实 Jev 质量及新手理解均须分别验收。见 [平台与发布范围](RELEASE.md)，不把系统凭证夹具或某个版本的测试泛化为全部环境通过。
 

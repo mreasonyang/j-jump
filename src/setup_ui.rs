@@ -2,7 +2,7 @@
 use super::{ask, ui};
 use j_jump::{
     Error, Result, adapter,
-    config::{Config, Paths},
+    config::{Config, Paths, Provider},
     store::Store,
 };
 use zeroize::Zeroizing;
@@ -43,13 +43,19 @@ fn value(cfg: &mut Config, key: &str, prompt: &str) -> Result<bool> {
             match input.as_str() {
                 "jev" => {
                     next.semantic = true;
+                    next.provider = Provider::Jev;
+                    Ok(())
+                }
+                "clef-flash" => {
+                    next.semantic = true;
+                    next.provider = Provider::ClefFlash;
                     Ok(())
                 }
                 "off" => {
                     next.semantic = false;
                     Ok(())
                 }
-                _ => Err(Error(2, "choose off or jev".into())),
+                _ => Err(Error(2, "choose off, jev or clef-flash".into())),
             }
         } else {
             ui::field(&mut next, key, &input)
@@ -70,9 +76,13 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
             0 => (
                 "semantic",
                 format!(
-                    "{} [off/jev; {}]: ",
+                    "{} [off/jev/clef-flash; {}]: ",
                     ui::tr("Semantic provider", "语义服务"),
-                    if cfg.semantic { "jev" } else { "off" }
+                    if cfg.semantic {
+                        cfg.provider.id()
+                    } else {
+                        "off"
+                    }
                 ),
             ),
             1 => (
@@ -87,8 +97,8 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
                 eprintln!(
                     "{}",
                     ui::tr(
-                        "strict: names; balanced: limited context; full: paths.\nQuery and names can be private. Jev may charge for requests.",
-                        "strict：目录名；balanced：有限上下文；full：路径。\n查询和名称也可能敏感；Jev 可能按请求计费。"
+                        "strict: names; balanced: limited context; full: paths.\nQuery and names can be private. The selected provider may charge for requests.",
+                        "strict：目录名；balanced：有限上下文；full：路径。\n查询和名称也可能敏感；所选服务商可能按请求计费。"
                     )
                 );
                 (
@@ -115,8 +125,26 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
     }
 }
 fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool> {
+    if cfg.provider == Provider::ClefFlash {
+        eprintln!(
+            "{}",
+            ui::tr(
+                "Cloudflare Workers AI needs an Account ID and API token. CLOUDFLARE_ACCOUNT_ID overrides the saved ID; Enter can leave it for later.",
+                "Cloudflare Workers AI 需要 Account ID 和 API Token。CLOUDFLARE_ACCOUNT_ID 优先于保存的 ID；可按 Enter 稍后配置。"
+            )
+        );
+        let prompt = format!(
+            "{} [{}]: ",
+            ui::tr("Cloudflare Account ID", "Cloudflare Account ID"),
+            cfg.cloudflare_account_id
+        );
+        if !value(cfg, "cloudflare_account_id", &prompt)? {
+            return Ok(false);
+        }
+    }
     loop {
-        let env = std::env::var_os("TYPESAFE_API_KEY").is_some_and(|s| !s.is_empty());
+        let env_name = j_jump::credential::environment_name(cfg.provider);
+        let env = env_name.is_some();
         eprintln!(
             "{}",
             ui::tr(
@@ -126,10 +154,11 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
         );
         if env {
             eprintln!(
-                "{}",
+                "{} {}",
+                env_name.unwrap(),
                 ui::tr(
-                    "TYPESAFE_API_KEY is present and overrides any stored key.",
-                    "已检测到 TYPESAFE_API_KEY，它优先于系统存储的 Key。"
+                    "is present and overrides any stored key.",
+                    "已检测到，它优先于系统存储的 Key。"
                 )
             );
         }
@@ -138,7 +167,7 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
             ui::tr("Key choice", "Key 选择"),
             if pending.is_some() {
                 ui::tr("new key pending save", "新 Key 等待保存")
-            } else if cfg.credential == "system" {
+            } else if cfg.credential_source() == "system" {
                 ui::tr(
                     "keep configured OS key (not checked)",
                     "保留已配置的系统 Key（尚未检查）",
@@ -149,7 +178,7 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
                 ui::tr("no key configured", "尚未配置 Key")
             }
         );
-        let default = if pending.is_some() || cfg.credential == "system" || env {
+        let default = if pending.is_some() || cfg.credential_source() == "system" || env {
             "keep"
         } else {
             "enter"
@@ -165,16 +194,16 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
         } else {
             answer.as_str()
         } {
-            "enter" => match super::read_secret() {
+            "enter" => match super::read_secret(cfg.provider) {
                 Ok(secret) if secret.is_empty() => {
                     // Enter keeps the current choice; with no key that means none for now.
-                    if pending.is_none() && cfg.credential != "system" && !env {
-                        cfg.credential = "environment".into();
+                    if pending.is_none() && cfg.credential_source() != "system" && !env {
+                        cfg.set_credential_source("environment");
                         eprintln!(
                             "{}",
                             ui::tr(
-                                "No key entered; Jev stays unavailable until you add one.",
-                                "未输入 Key；添加之前 Jev 暂不可用。"
+                                "No key entered; semantic help stays unavailable until you add one.",
+                                "未输入 Key；添加之前语义服务暂不可用。"
                             )
                         );
                     }
@@ -190,15 +219,17 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
                 Err(e) if e.0 == 2 => eprintln!("{}", ui::error_text(&e)),
                 Err(e) => return Err(e),
             },
-            "keep" if pending.is_some() || cfg.credential == "system" || env => return Ok(true),
+            "keep" if pending.is_some() || cfg.credential_source() == "system" || env => {
+                return Ok(true);
+            }
             "environment" if env => {
                 *pending = None;
-                cfg.credential = "environment".into();
+                cfg.set_credential_source("environment");
                 return Ok(true);
             }
             "skip" => {
                 *pending = None;
-                cfg.credential = "environment".into();
+                cfg.set_credential_source("environment");
                 return Ok(true);
             }
             "b" => return Ok(false),
@@ -215,8 +246,12 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
 }
 fn network(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool> {
     loop {
+        let previous_provider = cfg.provider;
         if !semantic(cfg, 0)? {
             return Ok(false);
+        }
+        if previous_provider != cfg.provider {
+            *pending = None;
         }
         if !cfg.semantic {
             *pending = None;
@@ -239,7 +274,7 @@ fn readiness(cfg: &Config, pending: &Option<Zeroizing<String>>) {
     }
     let mut effective = cfg.clone();
     if pending.is_some() {
-        effective.credential = "system".into();
+        effective.set_credential_source("system");
     }
     for line in ui::readiness(&effective, super::offline_env()) {
         if line == "jjump setup" {
@@ -264,11 +299,11 @@ fn roots(cfg: &mut Config, key: &str) -> Result<bool> {
             ui::tr(
                 "These folders and their subfolders stay searchable locally. Their names and paths are not sent to Jev.\nWhile you are inside one, Jev requests are disabled. File contents are never uploaded.\nExample: add /work/private-client to keep that client's directory information local.",
                 "这些文件夹及其子文件夹仍可在本地查找和跳转，但名称、路径不会发送给 Jev。\n你在这些文件夹里时，也不会调用 Jev。J-Jump 始终不会上传文件内容。\n例如：添加 /work/保密客户，让这个客户的目录信息只留在本机。"
-            )
+            ).replace("Jev", cfg.provider.label())
         );
         ui::tr(
             "Folders whose directory information stays local",
-            "不向 Jev 发送目录信息的文件夹",
+            "不向云端发送目录信息的文件夹",
         )
     } else {
         eprintln!(
@@ -380,6 +415,7 @@ fn reset(cfg: &mut Config) {
 }
 fn summary(cfg: &Config) {
     eprintln!("{}", ui::tr("Draft (not saved):", "草稿（尚未保存）："));
+    eprintln!("provider={}", cfg.provider.id());
     eprintln!(
         "semantic={}\nconsent={}\nprivacy={}\ntracking={}\ncandidate_limit={}\nlanguage={}\n{}: {} / {}: {}",
         cfg.semantic,
@@ -392,7 +428,7 @@ fn summary(cfg: &Config) {
         cfg.exclude.len(),
         ui::tr(
             "Directory information stays local",
-            "不向 Jev 发送目录信息的文件夹"
+            "不向云端发送目录信息的文件夹"
         ),
         cfg.no_send.len()
     );
@@ -432,8 +468,8 @@ fn configure(paths: &Paths, inline: bool) -> Result<()> {
     eprintln!(
         "{}",
         ui::tr(
-            "J-Jump stores directory visits, never commands.\nLocal navigation needs no key or network.\nFirst setup saves when you finish the last step; later edits use Save in the menu.\nEnter keeps the current value; b goes back; q cancels before completion.\nEnable Jev to enter an API key here (hidden; OS store).",
-            "J-Jump 只记录目录访问，不记录命令。\n本地导航不需要凭证或网络。\n首次完成最后一步后自动保存；以后修改设置，在菜单中选择保存。\nEnter 保留当前值；b 返回；完成前可按 q 退出不保存。\n启用 Jev 后可在这里输入 API Key（隐藏输入，系统存储）。"
+            "J-Jump stores directory visits, never commands.\nLocal navigation needs no key or network.\nFirst setup saves when you finish the last step; later edits use Save in the menu.\nEnter keeps the current value; b goes back; q cancels before completion.\nChoose Jev or Clef-Flash, then enter an API key here (hidden; separate OS entries).",
+            "J-Jump 只记录目录访问，不记录命令。\n本地导航不需要凭证或网络。\n首次完成最后一步后自动保存；以后修改设置，在菜单中选择保存。\nEnter 保留当前值；b 返回；完成前可按 q 退出不保存。\n选择 Jev 或 Clef-Flash 后可输入 API Key（隐藏输入，分别存入系统凭证库）。"
         )
     );
     match Store::open(paths, false).and_then(|db| db.list()) {
@@ -602,7 +638,7 @@ fn save(
     let mut committed = cfg.clone();
     if let Some(secret) = pending {
         j_jump::credential::save_config(paths, cfg, expected, secret)?;
-        committed.credential = "system".into();
+        committed.set_credential_source("system");
     } else {
         paths.save(cfg, expected)?;
     }
@@ -618,7 +654,7 @@ fn save(
         )
     );
     if committed.semantic && !ui::credential_available(&committed) {
-        eprintln!("{}", ui::missing_key_notice());
+        eprintln!("{}", ui::missing_key_notice(&committed));
     }
     if inline {
         eprintln!(

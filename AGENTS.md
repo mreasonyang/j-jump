@@ -25,7 +25,7 @@ it. Major/minor changes require explicit user authority. New versions need match
 
 The product is a Rust CLI with Bash/Zsh/Fish adapters and optional terminal pickers. Keep a single current implementation;
 do not add old-format migrations or automatic fallback. Local navigation must work without a network or credentials.
-Jev is the optional semantic provider; suggestions always require explicit selection. Only the parent shell changes directory.
+Jev and Cloudflare Clef-Flash are optional semantic providers; suggestions always require explicit selection. Only the parent shell changes directory.
 Never execute model output or unquoted paths as shell code. Never claim a target is supported from compilation alone.
 
 Use synthetic profiles for tests. File profiles do not isolate the shared OS credential entry; credential tests need an

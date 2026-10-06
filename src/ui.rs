@@ -124,33 +124,70 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<&'static str> {
     } else {
         if offline {
             lines.push(tr(
-                "This command is offline; no Jev request.",
-                "本次命令处于离线模式，不调用 Jev。",
+                "This command is offline; no provider request.",
+                "本次命令处于离线模式，不调用云端服务。",
             ));
         }
-        if std::env::var_os("TYPESAFE_API_KEY").is_none_or(|v| v.is_empty()) {
-            if cfg.credential == "system" {
+        if cfg.provider == j_jump::config::Provider::ClefFlash {
+            lines.push(tr(
+                "Semantic provider: Cloudflare Clef-Flash.",
+                "语义服务：Cloudflare Clef-Flash。",
+            ));
+            if j_jump::provider::account_id(cfg).is_err() {
+                lines.push(tr(
+                    "Clef-Flash blocked: Cloudflare Account ID missing or invalid.",
+                    "Clef-Flash 暂不可用：Cloudflare Account ID 缺失或无效。",
+                ));
+                lines.push("jjump setup");
+            }
+        }
+        if j_jump::credential::environment_name(cfg.provider).is_none() {
+            if cfg.credential_source() == "system" {
                 lines.push(tr(
                     "OS credential: configured, not checked.",
                     "系统凭证：已配置，尚未检查。",
                 ));
             } else {
-                lines.push(tr(
-                    "Jev blocked: no credential configured.",
-                    "Jev 暂不可用：尚未配置凭证。",
-                ));
+                lines.push(if cfg.provider == j_jump::config::Provider::Jev {
+                    tr(
+                        "Jev blocked: no credential configured.",
+                        "Jev 暂不可用：尚未配置凭证。",
+                    )
+                } else {
+                    tr(
+                        "Clef-Flash blocked: no API token configured.",
+                        "Clef-Flash 暂不可用：尚未配置 API Token。",
+                    )
+                });
                 lines.push("jjump setup");
             }
         } else {
-            lines.push(tr(
-                "Credential source: TYPESAFE_API_KEY.",
-                "凭证来源：TYPESAFE_API_KEY。",
-            ));
+            lines.push(match j_jump::credential::environment_name(cfg.provider) {
+                Some("CLOUDFLARE_AUTH_TOKEN") => tr(
+                    "Credential source: CLOUDFLARE_AUTH_TOKEN.",
+                    "凭证来源：CLOUDFLARE_AUTH_TOKEN。",
+                ),
+                Some("CLOUDFLARE_API_TOKEN") => tr(
+                    "Credential source: CLOUDFLARE_API_TOKEN.",
+                    "凭证来源：CLOUDFLARE_API_TOKEN。",
+                ),
+                _ => tr(
+                    "Credential source: TYPESAFE_API_KEY.",
+                    "凭证来源：TYPESAFE_API_KEY。",
+                ),
+            });
         }
-        lines.push(tr(
-            "Jev connection: not tested here.",
-            "Jev 连接：本次尚未实测。",
-        ));
+        lines.push(if cfg.provider == j_jump::config::Provider::Jev {
+            tr(
+                "Jev connection: not tested here.",
+                "Jev 连接：本次尚未实测。",
+            )
+        } else {
+            tr(
+                "Clef-Flash connection: not tested here.",
+                "Clef-Flash 连接：本次尚未实测。",
+            )
+        });
     }
     lines
 }
@@ -167,6 +204,22 @@ pub fn field(cfg: &mut Config, key: &str, value: &str) -> Result<()> {
     }
     match key {
         "semantic" => cfg.semantic = boolean(value)?,
+        "provider" => {
+            cfg.provider = match value {
+                "jev" => j_jump::config::Provider::Jev,
+                "clef-flash" => j_jump::config::Provider::ClefFlash,
+                _ => return Err(Error(2, "provider expects jev or clef-flash".into())),
+            }
+        }
+        "cloudflare_account_id" => {
+            if !value.is_empty() && !j_jump::provider::valid_account_id(value) {
+                return Err(Error(
+                    2,
+                    "cloudflare_account_id expects a 32-character hexadecimal Account ID".into(),
+                ));
+            }
+            cfg.cloudflare_account_id = value.into();
+        }
         "tracking" => cfg.tracking = boolean(value)?,
         "consent" if ["ask", "always"].contains(&value) => cfg.consent = value.into(),
         "privacy" if ["strict", "balanced", "full"].contains(&value) => cfg.privacy = value.into(),
@@ -242,12 +295,12 @@ pub fn field(cfg: &mut Config, key: &str, value: &str) -> Result<()> {
     }
     Ok(())
 }
-pub const SETTINGS: &str = "tracking/semantic: on|off\nconsent: ask|always\nprivacy: strict|balanced|full\ncandidate_limit: 1..254\nsemantic_route: local_first|force\nlanguage: auto|en|zh\nexclude/no_send: JSON array of absolute paths\nExample: jjump config set semantic off\nEnter your API key in jjump setup; never put it in config.";
+pub const SETTINGS: &str = "tracking/semantic: on|off\nprovider: jev|clef-flash\ncloudflare_account_id: 32 hexadecimal characters\nconsent: ask|always\nprivacy: strict|balanced|full\ncandidate_limit: 1..254\nsemantic_route: local_first|force\nlanguage: auto|en|zh\nexclude/no_send: JSON array of absolute paths\nExample: jjump config set semantic off\nEnter your API key in jjump setup; never put it in config.";
 pub fn command(mut cmd: clap::Command) -> clap::Command {
     if tr("en", "zh") == "en" {
         return cmd;
     }
-    cmd = cmd.about("本地目录导航；可选 Jev 建议须确认。")
+    cmd = cmd.about("本地目录导航；可选 Jev 或 Clef-Flash 建议须确认。")
         .after_help("首次 j/ji 自动引导；后续修改：jjump setup\nZsh: eval \"$(jjump init zsh)\"\nBash: eval \"$(jjump init bash)\"\nFish: jjump init fish | source\n本地导航不需要凭证或网络。\n用法：j 查询词；j -- 路径；j -；ji 查询词\n退出码：2 输入；3 无匹配；4 需选择；5 服务；6 路径；7 状态；130 取消。")
         .mut_subcommands(|sub| {
             let desc = match sub.get_name() {
@@ -259,7 +312,7 @@ pub fn command(mut cmd: clap::Command) -> clap::Command {
                 "credential" => "管理 J-Jump 系统凭证",
                 "doctor" => "离线检查配置、目录库和下一步",
                 "explain" => "离线解释本地排序",
-                "preview" => "离线预览发送给 Jev 的 JSON",
+                "preview" => "离线预览发送给所选服务商的 JSON",
                 "history" => "管理本地访问记录",
                 "cache" => "仅清理语义缓存",
                 "data" => "清理访问记录和缓存",
@@ -270,9 +323,9 @@ pub fn command(mut cmd: clap::Command) -> clap::Command {
         });
     cmd = cmd.mut_arg("config", |a| a.help("使用指定的绝对配置路径"))
         .mut_arg("offline", |a| a.help("本次命令禁止语义请求"))
-        .mut_arg("force_semantic", |a| a.help("有本地匹配时也请求 Jev；仍须选择"))
+        .mut_arg("force_semantic", |a| a.help("有本地匹配时也请求所选服务商；仍须选择"))
         .mut_subcommand("config", |c| c.mut_subcommand("set", |c| c.about("修改一个字段；错误时不保存")
-            .after_help("可写设置：\ntracking/semantic: on|off\nconsent: ask|always\nprivacy: strict|balanced|full\ncandidate_limit: 1..254\nsemantic_route: local_first|force\nlanguage: auto|en|zh\nexclude/no_send: 绝对路径 JSON 数组\nAPI Key 请在 jjump setup 中填写，不写入配置。")));
+            .after_help("可写设置：\ntracking/semantic: on|off\nprovider: jev|clef-flash\ncloudflare_account_id: 32 位十六进制 Account ID\nconsent: ask|always\nprivacy: strict|balanced|full\ncandidate_limit: 1..254\nsemantic_route: local_first|force\nlanguage: auto|en|zh\nexclude/no_send: 绝对路径 JSON 数组\nAPI Key 请在 jjump setup 中填写，不写入配置。")));
     cmd
 }
 pub fn shell_help(name: &str, interactive: bool) -> Result<()> {
@@ -309,10 +362,17 @@ pub fn shell_help(name: &str, interactive: bool) -> Result<()> {
 }
 /// A semantic request is possible only with an environment key or a configured OS entry.
 pub fn credential_available(cfg: &j_jump::config::Config) -> bool {
-    std::env::var_os("TYPESAFE_API_KEY").is_some_and(|v| !v.is_empty())
-        || cfg.credential == "system"
+    (j_jump::credential::environment_name(cfg.provider).is_some()
+        || cfg.credential_source() == "system")
+        && j_jump::provider::account_id(cfg).is_ok()
 }
-pub fn missing_key_notice() -> &'static str {
+pub fn missing_key_notice(cfg: &j_jump::config::Config) -> &'static str {
+    if cfg.provider == j_jump::config::Provider::ClefFlash {
+        return tr(
+            "Clef-Flash skipped: configure a Cloudflare Account ID and API token in jjump setup, or CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN.",
+            "已跳过 Clef-Flash：请在 jjump setup 中配置 Cloudflare Account ID 和 API Token，或设置 CLOUDFLARE_ACCOUNT_ID、CLOUDFLARE_AUTH_TOKEN。",
+        );
+    }
     tr(
         "Jev skipped: no key configured. Add one with jjump setup or TYPESAFE_API_KEY.",
         "已跳过 Jev：尚未配置 Key。可用 jjump setup 或 TYPESAFE_API_KEY 添加。",
@@ -340,6 +400,7 @@ pub fn error_text(e: &Error) -> String {
     let explanation = match e.0 {
         2 => "输入无效；请按提示更正，配置未保存。",
         3 if e.1.contains("Jev") => "Jev 没有可靠建议；未选择目录。",
+        3 if e.1.contains("Clef-Flash") => "Clef-Flash 没有可靠建议；未选择目录。",
         3 => "没有匹配目录；可用 ji 选择，或先用 cd 访问。",
         4 => "此操作需要交互终端。",
         5 => "语义服务未完成；未选择目录。",

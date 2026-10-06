@@ -73,9 +73,9 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 
 **选择器操作：** 输入编号跳转，`n`/`p` 翻页，`v 3` 查看完整路径，直接回车或 `q` 取消。如果更喜欢模糊搜索，安装 [fzf](https://github.com/junegunn/fzf) 后设置 `export J_JUMP_PICKER=fzf`。
 
-## Jev：按含义找目录
+## Jev 和 Clef-Flash：按含义找目录
 
-Jev 是可选的语义模型服务，**默认关闭**，本地导航从不依赖它。
+Jev 和 Cloudflare Clef-Flash 是可选的语义模型服务，**默认关闭**，本地导航从不依赖它。
 
 **开启方法：** 运行 `jjump setup`，选择 Jev 并粘贴 Key。输入内容不会显示，Key 保存在系统凭证库中，不会写入任何文件。也可以在环境变量中设置 `TYPESAFE_API_KEY`，再运行 `jjump config set semantic on`。仅配置 Key 并不会开启请求。
 
@@ -87,9 +87,29 @@ Jev 是可选的语义模型服务，**默认关闭**，本地导航从不依赖
 - 默认 `consent ask`，每次请求前都会征求你的同意；`jjump config set consent always` 可跳过确认。Jev 服务可能按请求计费。
 - 每次请求最多等待 10 秒。等待时按回车切换到本地候选，按 `W` 继续等待。出错、超时或 Jev 无法确定时都会停下，不会替你跳转。
 
-### Jev 能看到什么
+### 选择 Cloudflare Clef-Flash
 
-| `privacy` 设置 | 发送给 Jev 的内容 |
+运行 `jjump setup`，选择 `clef-flash`，填写 Cloudflare Account ID 并粘贴 Workers AI API Token。
+Token 与 Jev Key 分别保存在独立的系统凭证项中，也可以通过环境变量配置：
+
+```sh
+export CLOUDFLARE_ACCOUNT_ID="your-32-character-account-id"
+export CLOUDFLARE_AUTH_TOKEN="your-workers-ai-api-token"
+jjump config set provider clef-flash
+jjump config set semantic on
+```
+
+`CLOUDFLARE_API_TOKEN` 是备用名称，仅在 `CLOUDFLARE_AUTH_TOKEN` 未设置或为空时使用。
+`CLOUDFLARE_ACCOUNT_ID` 优先于配置中的 `cloudflare_account_id`；各家的环境凭证仅覆盖对应的系统凭证。
+运行 `jjump config set provider jev` 可切回官方 Jev API。默认仍为 Jev；选服务商与开启语义服务分别配置。
+`jjump credential status/set/delete` 只管理当前所选服务商的凭证。向导切换服务商会丢弃未保存的 Key 草稿，
+已保存的两家凭证会保留。Clef-Flash 使用 [Cloudflare 官方 Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/) 和 `clef-flash` 模型。
+两家共用隐私、联网许可、离线模式和手动选择规则；推荐标注所选服务商。缓存绑定服务商、账户和凭证；
+失败时不会自动改用另一家。`doctor` 仅检查本地配置，不会发送云端测试请求。
+
+### 所选服务商能看到什么
+
+| `privacy` 设置 | 发送给所选服务商的内容 |
 | --- | --- |
 | `strict`（默认） | 查询词和候选目录名 |
 | `balanced` | 另加每个目录的上级目录名、当前目录名，以及低/中/高三档访问频率 |
@@ -98,7 +118,7 @@ Jev 是可选的语义模型服务，**默认关闭**，本地导航从不依赖
 文件内容、Git 远程地址、环境变量、Shell 历史和凭证**永远不会**发送。目录名和查询词本身也可能敏感，所以你还可以：
 
 - 用 `jjump preview "my cv"` 查看将要发送的完整请求，此命令不会真正发送。
-- 把目录加入 `no_send`：仍可在本地查找和跳转，但不会发给 Jev；身处其中时 Jev 自动停用。
+- 把目录加入 `no_send`：仍可在本地查找和跳转，但不会发给云端服务；身处其中时语义请求自动停用。
 - 把目录加入 `exclude`：完全不记录、不搜索。
 
 ```sh
@@ -113,17 +133,22 @@ jjump config set exclude '["/work/scratch"]'
 | 键 | 可选值 | 默认值 |
 | --- | --- | --- |
 | `semantic` | `on`、`off` | `off` |
+| `provider` | `jev`、`clef-flash` | `jev` |
+| `cloudflare_account_id` | 32 位十六进制 Account ID 或空字符串 | 空 |
 | `consent` | `ask`、`always` | `ask` |
 | `privacy` | `strict`、`balanced`、`full` | `strict` |
 | `tracking` | `on`、`off` | `on` |
 | `exclude`、`no_send` | 绝对路径的 JSON 数组 | `[]` |
 | `language` | `auto`、`en`、`zh` | `auto` |
-| `semantic_route` | `local_first`、`force`（总是询问 Jev，仍需你选择） | `local_first` |
-| `candidate_limit` | `1`–`254`，提供给 Jev 的目录分组上限 | `254` |
+| `semantic_route` | `local_first`、`force`（总是询问所选服务商，仍需你选择） | `local_first` |
+| `candidate_limit` | `1`–`254`，提供给所选服务商的目录分组上限 | `254` |
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `TYPESAFE_API_KEY` | Jev Key，优先于系统凭证库中保存的 Key |
+| `TYPESAFE_API_KEY` | Jev Key，优先于系统凭证库中保存的 Jev Key |
+| `CLOUDFLARE_AUTH_TOKEN` | Workers AI Token，优先于系统中保存的 Cloudflare Token |
+| `CLOUDFLARE_API_TOKEN` | AUTH_TOKEN 未设置或为空时使用的备用名称 |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID，优先于保存的账户配置 |
 | `J_JUMP_PICKER` | `fzf` 或 `numbered`（默认） |
 | `J_JUMP_OFFLINE=1` | 本次命令只在本地查找 |
 | `J_JUMP_LANG` | 界面语言：`en` 或 `zh` |
@@ -142,8 +167,8 @@ jjump config set tracking off       # 暂停记录
 mkdir -m 700 ~/jjump-backup && jjump history backup ~/jjump-backup/visits.json
 jjump history restore ~/jjump-backup/visits.json    # 只做校验；加 --apply 才替换
 jjump history clear --preview
-jjump data clear --preview          # 访问记录和 Jev 缓存
-jjump credential delete             # 删除保存的 Jev Key（预览）
+jjump data clear --preview          # 访问记录和语义缓存
+jjump credential delete             # 删除所选服务商的凭证（预览）
 ```
 
 所有删除或替换数据的命令都会先预览，加 `--apply` 才真正执行。备份必须放在私有目录（`chmod 700`）中。删除不等于安全擦除。
@@ -159,7 +184,7 @@ jjump credential delete             # 删除保存的 Jev Key（预览）
 | 报错提到旧格式或未知格式 | J-Jump 尚未发布 1.0，只读取当前格式的数据。原文件不会被改动，运行 `jjump doctor` 查看处理方法。 |
 | 其他问题 | 运行 `jjump doctor`，它离线运行并给出下一步建议。 |
 
-供脚本使用的退出码：`2` 输入错误，`3` 无匹配，`4` 需要选择，`5` Jev，`6` 路径，`7` 状态，`130` 已取消。
+供脚本使用的退出码：`2` 输入错误，`3` 无匹配，`4` 需要选择，`5` 服务商，`6` 路径，`7` 状态，`130` 已取消。
 
 ## 更新与卸载
 

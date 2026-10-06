@@ -86,9 +86,9 @@ see the ranking.
 **In the picker:** type a number to jump, `n`/`p` to change page, `v 3` to see a full path, and Enter or `q` to cancel.
 If you prefer fuzzy filtering, install [fzf](https://github.com/junegunn/fzf) and set `export J_JUMP_PICKER=fzf`.
 
-## Jev: find folders by meaning
+## Jev and Clef-Flash: find folders by meaning
 
-Jev is an optional semantic model service. It is **off by default**, and local navigation never needs it.
+Jev and Cloudflare Clef-Flash are optional semantic model services. Semantic help is **off by default**, and local navigation never needs a provider.
 
 **Turn it on** with `jjump setup`: choose Jev and paste your key. Input is hidden, and the key is saved to your OS
 credential store, never to a file. Alternatively, set `TYPESAFE_API_KEY` in your environment and run
@@ -105,9 +105,30 @@ credential store, never to a file. Alternatively, set `TYPESAFE_API_KEY` in your
 - A request waits up to 10 seconds. While waiting, press Enter to switch to local choices or `W` to keep waiting.
   Errors, timeouts and "not sure" answers stop without moving you.
 
-### What Jev can see
+### Choose Cloudflare Clef-Flash
 
-| `privacy` setting | Sent to Jev |
+Run `jjump setup`, select `clef-flash`, enter your Cloudflare Account ID and paste a Workers AI API token.
+The token uses its own OS credential entry, separate from Jev. You can also use environment credentials:
+
+```sh
+export CLOUDFLARE_ACCOUNT_ID="your-32-character-account-id"
+export CLOUDFLARE_AUTH_TOKEN="your-workers-ai-api-token"
+jjump config set provider clef-flash
+jjump config set semantic on
+```
+
+`CLOUDFLARE_API_TOKEN` is an alias, used when `CLOUDFLARE_AUTH_TOKEN` is absent or empty.
+`CLOUDFLARE_ACCOUNT_ID` overrides the saved `cloudflare_account_id`; tokens override only their own provider's stored key.
+Switch back with `jjump config set provider jev`. Jev remains the default, and enabling either provider is a separate setting.
+`jjump credential status/set/delete` operates on the selected provider. Switching discards an unsaved key draft;
+previously saved provider credentials are kept. Requests use the [official Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/),
+with the `clef-flash` model. Privacy, consent, offline mode and explicit selection apply to both providers; suggestions
+are labelled with the selected provider. Cached responses are bound to provider, account and credential. Failed requests
+never switch providers automatically. `doctor` checks configuration locally; it does not test cloud inference.
+
+### What the selected provider can see
+
+| `privacy` setting | Sent to the selected provider |
 | --- | --- |
 | `strict` (default) | Your query and candidate folder names |
 | `balanced` | Plus each folder's parent name, the current folder's name and a low/medium/high visit level |
@@ -117,7 +138,7 @@ File contents, Git remotes, environment variables, shell history and credentials
 queries can themselves be sensitive, so you have more controls:
 
 - `jjump preview "my cv"` prints the exact request without sending anything.
-- `no_send` folders still work locally but are never sent to Jev, and Jev is off while you're inside them.
+- `no_send` folders still work locally but are never sent to a provider, and semantic requests are off while you're inside them.
 - `exclude` folders are never recorded or searched at all.
 
 ```sh
@@ -133,17 +154,22 @@ Use the interactive `jjump setup`, or `jjump config set KEY VALUE`. `jjump confi
 | Key | Values | Default |
 | --- | --- | --- |
 | `semantic` | `on`, `off` | `off` |
+| `provider` | `jev`, `clef-flash` | `jev` |
+| `cloudflare_account_id` | 32 hexadecimal characters or empty | empty |
 | `consent` | `ask`, `always` | `ask` |
 | `privacy` | `strict`, `balanced`, `full` | `strict` |
 | `tracking` | `on`, `off` | `on` |
 | `exclude`, `no_send` | JSON array of absolute paths | `[]` |
 | `language` | `auto`, `en`, `zh` | `auto` |
-| `semantic_route` | `local_first`, `force` (always ask Jev; you still choose) | `local_first` |
-| `candidate_limit` | `1`–`254` folder groups offered to Jev | `254` |
+| `semantic_route` | `local_first`, `force` (always ask the selected provider; you still choose) | `local_first` |
+| `candidate_limit` | `1`–`254` folder groups offered to the selected provider | `254` |
 
 | Environment variable | Effect |
 | --- | --- |
-| `TYPESAFE_API_KEY` | Jev key; takes priority over the stored key |
+| `TYPESAFE_API_KEY` | Jev key; takes priority over the stored Jev key |
+| `CLOUDFLARE_AUTH_TOKEN` | Workers AI token; takes priority over the stored Cloudflare token |
+| `CLOUDFLARE_API_TOKEN` | Alias when `CLOUDFLARE_AUTH_TOKEN` is absent or empty |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account; overrides the saved Account ID |
 | `J_JUMP_PICKER` | `fzf` or `numbered` (default) |
 | `J_JUMP_OFFLINE=1` | Keep this command local |
 | `J_JUMP_LANG` | `en` or `zh` messages |
@@ -163,8 +189,8 @@ jjump config set tracking off       # pause recording
 mkdir -m 700 ~/jjump-backup && jjump history backup ~/jjump-backup/visits.json
 jjump history restore ~/jjump-backup/visits.json    # validates; add --apply to replace
 jjump history clear --preview
-jjump data clear --preview          # history and cached Jev answers
-jjump credential delete             # remove the stored Jev key (preview)
+jjump data clear --preview          # history and cached semantic answers
+jjump credential delete             # remove the selected provider key (preview)
 ```
 
 Anything that deletes or replaces data shows a preview first; add `--apply` to do it. Backups must sit in a private
@@ -181,7 +207,7 @@ Anything that deletes or replaces data shows a preview first; add `--apply` to d
 | An error mentions an old or unknown format | J-Jump is pre-1.0 and reads only its current state formats. Your files are left untouched; `jjump doctor` shows the remedy. |
 | Anything else | Run `jjump doctor`. It's offline and suggests next steps. |
 
-Exit codes for scripts: `2` input, `3` no match, `4` selection required, `5` Jev, `6` path, `7` state, `130` cancelled.
+Exit codes for scripts: `2` input, `3` no match, `4` selection required, `5` provider, `6` path, `7` state, `130` cancelled.
 
 ## Update and uninstall
 

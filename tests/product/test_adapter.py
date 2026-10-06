@@ -31,7 +31,7 @@ class AdapterLifecycle(unittest.TestCase):
             self.env.pop(key, None)
         config_path = self.root / "state/config/config.json"
         profile = (os.fsencode(config_path) + b"\0" +
-                   os.fsencode(self.root / "state/cache") + b"\0adapter-v4" +
+                   os.fsencode(self.root / "state/cache") + b"\0adapter-v5" +
                    b"".join(key.encode() + b"\0\0" for key in proxy_keys))
         digest = hashlib.sha256(profile).hexdigest()[:24]
         base = pathlib.Path("/private/tmp" if platform.system() == "Darwin" else "/tmp")
@@ -101,8 +101,8 @@ class AdapterLifecycle(unittest.TestCase):
         self.start()
         request_id = "0" * 32
         frame = json.dumps({
-            "kind": "Send", "version": 4, "id": request_id,
-            "fingerprint": "deliberately-wrong", "credential_epoch": "absent",
+            "kind": "Send", "version": 5, "id": request_id,
+            "fingerprint": "deliberately-wrong", "credential_epoch": "absent", "account_id": "",
             "remaining_ms": 1000,
             "deadline_tick_ns": time.clock_gettime_ns(time.CLOCK_MONOTONIC) + 1_000_000_000,
             "key": "synthetic-test-key", "payload": "x" * 12_000,

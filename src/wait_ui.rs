@@ -68,10 +68,19 @@ fn line_end(tty: &mut File) -> Result<()> {
 
 /// A response is consumed only while this invocation still wants it. Dropping the receiver
 /// after a local choice cannot make a late provider result into a directory selection.
+#[cfg(test)]
 pub fn wait_for_jev<T>(
+    tty: File,
+    rx: Receiver<Result<T>>,
+    deadline: Instant,
+) -> Result<Option<Result<T>>> {
+    wait_for_provider(tty, rx, deadline, "Jev")
+}
+pub fn wait_for_provider<T>(
     mut tty: File,
     rx: Receiver<Result<T>>,
     deadline: Instant,
+    provider: &str,
 ) -> Result<Option<Result<T>>> {
     let started = Instant::now();
     let mut loading = false;
@@ -82,12 +91,13 @@ pub fn wait_for_jev<T>(
         let now = Instant::now();
         if now >= deadline {
             if choice {
-                tty.write_all(b"\r\nJev deadline reached. No directory selected; use jjump --offline query --interactive.\r\n")
+                write!(tty, "\r\n{provider} deadline reached. No directory selected; use jjump --offline query --interactive.\r\n")
                     .map_err(|_| Error(130, "terminal closed".into()))?;
             }
             return Err(Error(
                 5,
-                "Jev deadline reached; use jjump --offline query --interactive".into(),
+                format!("{provider} deadline reached; use jjump --offline query --interactive")
+                    .into(),
             ));
         }
         match rx.try_recv() {
@@ -103,8 +113,7 @@ pub fn wait_for_jev<T>(
                 }
                 return Ok(Some(Err(Error(
                     5,
-                    "Jev worker stopped; browse locally: jjump --offline query --interactive"
-                        .into(),
+                    format!("{provider} worker stopped; browse locally: jjump --offline query --interactive").into(),
                 ))));
             }
             Err(TryRecvError::Empty) => {}
@@ -112,14 +121,15 @@ pub fn wait_for_jev<T>(
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(started);
         if !loading && elapsed >= LOADING_AFTER {
-            tty.write_all(b"Checking with Jev...\r\n")
+            write!(tty, "Checking with {provider}...\r\n")
                 .and_then(|_| tty.flush())
                 .map_err(|_| Error(130, "terminal closed".into()))?;
             loading = true;
         }
         if loading && !choice && elapsed >= CHOICE_AFTER {
-            tty.write_all(
-                b"Jev's taking the scenic route. Use local picks now? [Enter=yes / W=wait] ",
+            write!(
+                tty,
+                "{provider}'s taking the scenic route. Use local picks now? [Enter=yes / W=wait] "
             )
             .and_then(|_| tty.flush())
             .map_err(|_| Error(130, "terminal closed".into()))?;
