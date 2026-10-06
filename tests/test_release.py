@@ -244,6 +244,20 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("scoped J_JUMP_DISTRIBUTION_TOKEN secret before publication", result.stderr)
         self.assertNotIn("not a git repository", result.stderr)
 
+    def test_single_target_repairs_refuse_publication_before_git_or_network(self):
+        workflow = json.loads((ROOT / ".github/workflows/release.yml").read_text())
+        step = next(item for item in workflow["jobs"]["preflight"]["steps"] if "run" in item)
+        for publication, tap in (("true", "false"), ("false", "true")):
+            with self.subTest(publication=publication, tap=tap), tempfile.TemporaryDirectory() as empty:
+                env = dict(os.environ, REQUEST_TARGET="x86_64-apple-darwin", REQUEST_PUBLISH=publication,
+                           REQUEST_TAP=tap, PUBLISH_ENABLED="true", TAP_TOKEN_AVAILABLE="true",
+                           RELEASE_TAG="v0.0.27")
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=empty, env=env,
+                                        capture_output=True, text=True)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("Single-target repair builds cannot publish", result.stderr)
+                self.assertNotIn("not a git repository", result.stderr)
+
     def test_private_release_and_existing_assets_cannot_be_published(self):
         identity = {"version": "0.0.27", "source_sha": "a" * 40}
         bundle = self.bundle()

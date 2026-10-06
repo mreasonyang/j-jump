@@ -130,7 +130,7 @@ names are retained. Development fixture packaging may accept debug source paths 
 The exact artifact must still pass the installed-product and downloader lifecycle before acceptance. This package
 boundary does not clean Git history, change source visibility, sign an archive or publish it.
 
-Native jobs disable automatic Git maintenance, fsmonitor and untracked caching through job-local Git configuration so background writers cannot race disposable repository cleanup. Before full product builds they repeat the repository cleanup regression three times. These settings apply only to ephemeral Actions jobs.
+Native jobs disable automatic Git maintenance, fsmonitor and untracked caching through job-local Git configuration to keep disposable repository cleanup free from these background Git writers. Before full product builds they repeat the repository cleanup regression three times. These settings apply only to ephemeral Actions jobs.
 
 The manual `build_target` input defaults to `all`. Select one target for an isolated repair build; that mode skips the hosted bundle and refuses publication inputs. Full hosted publication still requires all four targets and the complete verified bundle. Previously accepted archives at the same immutable source tag can be combined with a repaired target through the local verifier and guarded publisher; source identities and all checksums must match.
 
