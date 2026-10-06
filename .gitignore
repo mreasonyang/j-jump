@@ -12,6 +12,7 @@ target/
 /.agents/
 /docs/*
 !/docs/README.md
+!/docs/CONFIGURATION.md
 !/docs/CONFIGURATION-AND-HELP.md
 !/docs/RELEASE.md
 **/SPEC.md
