@@ -17,6 +17,18 @@
           "description": "Update the public tap after successful public publication",
           "type": "boolean",
           "default": false
+        },
+        "build_target": {
+          "description": "Native target repair build; all runs the complete hosted bundle/publication chain",
+          "type": "choice",
+          "default": "all",
+          "options": [
+            "all",
+            "aarch64-apple-darwin",
+            "x86_64-apple-darwin",
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl"
+          ]
         }
       }
     }
@@ -60,9 +72,10 @@
             "REQUEST_PUBLISH": "${{ inputs.publish }}",
             "REQUEST_TAP": "${{ inputs.update_homebrew }}",
             "PUBLISH_ENABLED": "${{ vars.J_JUMP_PUBLISH_ENABLED }}",
-            "TAP_TOKEN_AVAILABLE": "${{ secrets.J_JUMP_DISTRIBUTION_TOKEN != '' }}"
+            "TAP_TOKEN_AVAILABLE": "${{ secrets.J_JUMP_DISTRIBUTION_TOKEN != '' }}",
+            "REQUEST_TARGET": "${{ inputs.build_target }}"
           },
-          "run": "set -euo pipefail\nif [[ \"$REQUEST_PUBLISH\" == true && \"$PUBLISH_ENABLED\" != true ]]; then echo \"Publication is deferred; activate it only after separate authorization\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$REQUEST_PUBLISH\" != true ]]; then echo \"Tap update requires publication in the same run\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$TAP_TOKEN_AVAILABLE\" != true ]]; then echo \"Tap update requires the scoped J_JUMP_DISTRIBUTION_TOKEN secret before publication\" >&2; exit 1; fi\ngit merge-base --is-ancestor HEAD refs/remotes/origin/main\ngit switch -C main\n./scripts/install-hooks.sh\npython3 scripts/release.py check-source --tag \"$RELEASE_TAG\"\npython3 -m unittest discover -s tests -p 'test_*.py'\n./scripts/verify-workflow.sh --local"
+          "run": "set -euo pipefail\nif [[ -n \"$REQUEST_TARGET\" && \"$REQUEST_TARGET\" != all && ( \"$REQUEST_PUBLISH\" == true || \"$REQUEST_TAP\" == true ) ]]; then echo \"Single-target repair builds cannot publish; select all targets\" >&2; exit 1; fi\nif [[ \"$REQUEST_PUBLISH\" == true && \"$PUBLISH_ENABLED\" != true ]]; then echo \"Publication is deferred; activate it only after separate authorization\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$REQUEST_PUBLISH\" != true ]]; then echo \"Tap update requires publication in the same run\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$TAP_TOKEN_AVAILABLE\" != true ]]; then echo \"Tap update requires the scoped J_JUMP_DISTRIBUTION_TOKEN secret before publication\" >&2; exit 1; fi\ngit merge-base --is-ancestor HEAD refs/remotes/origin/main\ngit switch -C main\n./scripts/install-hooks.sh\npython3 scripts/release.py check-source --tag \"$RELEASE_TAG\"\npython3 -m unittest discover -s tests -p 'test_*.py'\n./scripts/verify-workflow.sh --local"
         }
       ]
     },
@@ -73,24 +86,7 @@
       "strategy": {
         "fail-fast": false,
         "matrix": {
-          "include": [
-            {
-              "runner": "macos-15",
-              "target": "aarch64-apple-darwin"
-            },
-            {
-              "runner": "macos-15-intel",
-              "target": "x86_64-apple-darwin"
-            },
-            {
-              "runner": "ubuntu-24.04",
-              "target": "x86_64-unknown-linux-musl"
-            },
-            {
-              "runner": "ubuntu-24.04-arm",
-              "target": "aarch64-unknown-linux-musl"
-            }
-          ]
+          "include": "${{ fromJSON(inputs.build_target == 'aarch64-apple-darwin' && '[{\"runner\":\"macos-15\",\"target\":\"aarch64-apple-darwin\"}]' || inputs.build_target == 'x86_64-apple-darwin' && '[{\"runner\":\"macos-15-intel\",\"target\":\"x86_64-apple-darwin\"}]' || inputs.build_target == 'x86_64-unknown-linux-musl' && '[{\"runner\":\"ubuntu-24.04\",\"target\":\"x86_64-unknown-linux-musl\"}]' || inputs.build_target == 'aarch64-unknown-linux-musl' && '[{\"runner\":\"ubuntu-24.04-arm\",\"target\":\"aarch64-unknown-linux-musl\"}]' || '[{\"runner\":\"macos-15\",\"target\":\"aarch64-apple-darwin\"},{\"runner\":\"macos-15-intel\",\"target\":\"x86_64-apple-darwin\"},{\"runner\":\"ubuntu-24.04\",\"target\":\"x86_64-unknown-linux-musl\"},{\"runner\":\"ubuntu-24.04-arm\",\"target\":\"aarch64-unknown-linux-musl\"}]') }}"
         }
       },
       "steps": [
@@ -126,6 +122,13 @@
           "run": "brew install fish fzf"
         },
         {
+          "name": "Verify temporary Git fixture cleanup before product builds",
+          "env": {
+            "PYTHONPATH": "tests"
+          },
+          "run": "for attempt in 1 2 3; do\n  python3 -m unittest test_verify_workflow.WorkflowValidatorTests.test_documentation_change_does_not_require_product_claim -v\ndone"
+        },
+        {
           "name": "Test source and exact installed archive",
           "env": {
             "RELEASE_TARGET": "${{ matrix.target }}",
@@ -143,7 +146,18 @@
             "retention-days": 7
           }
         }
-      ]
+      ],
+      "env": {
+        "GIT_CONFIG_COUNT": "4",
+        "GIT_CONFIG_KEY_0": "maintenance.auto",
+        "GIT_CONFIG_VALUE_0": "false",
+        "GIT_CONFIG_KEY_1": "gc.auto",
+        "GIT_CONFIG_VALUE_1": "0",
+        "GIT_CONFIG_KEY_2": "core.fsmonitor",
+        "GIT_CONFIG_VALUE_2": "false",
+        "GIT_CONFIG_KEY_3": "core.untrackedCache",
+        "GIT_CONFIG_VALUE_3": "false"
+      }
     },
     "bundle": {
       "needs": "build",
@@ -189,7 +203,8 @@
             "retention-days": 7
           }
         }
-      ]
+      ],
+      "if": "${{ inputs.build_target == 'all' || inputs.build_target == '' }}"
     },
     "publish": {
       "needs": "bundle",

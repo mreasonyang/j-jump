@@ -130,6 +130,10 @@ names are retained. Development fixture packaging may accept debug source paths 
 The exact artifact must still pass the installed-product and downloader lifecycle before acceptance. This package
 boundary does not clean Git history, change source visibility, sign an archive or publish it.
 
+Native jobs disable automatic Git maintenance, fsmonitor and untracked caching through job-local Git configuration so background writers cannot race disposable repository cleanup. Before full product builds they repeat the repository cleanup regression three times. These settings apply only to ephemeral Actions jobs.
+
+The manual `build_target` input defaults to `all`. Select one target for an isolated repair build; that mode skips the hosted bundle and refuses publication inputs. Full hosted publication still requires all four targets and the complete verified bundle. Previously accepted archives at the same immutable source tag can be combined with a repaired target through the local verifier and guarded publisher; source identities and all checksums must match.
+
 The hosted matrix uses macos-15, macos-15-intel, ubuntu-24.04 and ubuntu-24.04-arm. Rust is pinned to1.98.0; Cargo.lock is retained and builds use --locked. Actions are pinned to exact commit SHAs. Each claimed platform requires a successful native run for its exact source tag; an in-progress or failed run does not establish support. The no-match performance regression runs against the exact optimized installed binary with its original timing bounds; rapid prompt tracking is also checked in the native installed suite.
 
 ## Bundle and Formula
