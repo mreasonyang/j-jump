@@ -1,4 +1,4 @@
-import errno,json,os,pathlib,pty,select,shlex,signal,subprocess,tempfile,time,unittest,fcntl,termios,struct
+import errno,json,os,pathlib,pty,select,shlex,signal,subprocess,tempfile,time,unittest,fcntl,termios,struct,re
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 BIN=pathlib.Path(os.environ.get('JJ_TEST_BIN',ROOT/'target/debug/jjump')).resolve()
 class Terminal:
@@ -37,6 +37,19 @@ class Terminal:
   return b
  def cmd(self,s,marker):
   self.send(s+"; printf '\\n"+marker+"\\n'\r");self.until(('\r\n'+marker+'\r\n').encode());self.drain(.1)
+ def send_and_wait_prompt(self,s,seconds=10):
+  # A foreground command can still be restoring the editor after its last
+  # output. Fish also redraws its prompt while accepting a command, so only a
+  # complete prompt on a new line with terminal ownership restored is ready.
+  start=len(self.output);self.send(s);end=time.monotonic()+seconds
+  while True:
+   tail=re.sub(rb'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)',b'',self.output[start:])
+   tail=re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]|\x1b[=>]',b'',tail)
+   line=tail.rsplit(b'\r',1)[-1].rsplit(b'\n',1)[-1]
+   if b'\n' in tail and line==b'JJ_TEST_READY# ' and os.tcgetpgrp(self.fd)==os.getpgid(self.pid):break
+   if time.monotonic()>=end:raise AssertionError(('shell did not return to prompt',self.output[start:][-3000:]))
+   self.drain(.05)
+  return self.output[start:]
  def cancelled(self):
   start=len(self.output)
   variable='$status' if self.shell_name=='fish' else '$?'

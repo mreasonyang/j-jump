@@ -101,6 +101,7 @@ jjump config set semantic on
 
 `CLOUDFLARE_API_TOKEN` 是备用名称，仅在 `CLOUDFLARE_AUTH_TOKEN` 未设置或为空时使用。
 `CLOUDFLARE_ACCOUNT_ID` 优先于配置中的 `cloudflare_account_id`；各家的环境凭证仅覆盖对应的系统凭证。
+非空但无效的 Account ID 环境变量会阻止请求；请更正它，或清除它以使用已保存的账户。
 运行 `jjump config set provider jev` 可切回官方 Jev API。默认仍为 Jev；选服务商与开启语义服务分别配置。
 `jjump credential status/set/delete` 只管理当前所选服务商的凭证。向导切换服务商会丢弃未保存的 Key 草稿，
 已保存的两家凭证会保留。Clef-Flash 使用 [Cloudflare 官方 Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/) 和 `clef-flash` 模型。

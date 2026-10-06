@@ -31,10 +31,16 @@ pub fn account_id(cfg: &Config) -> Result<String> {
     if cfg.provider == Provider::Jev {
         return Ok(String::new());
     }
-    let id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| cfg.cloudflare_account_id.clone());
+    let id = match std::env::var("CLOUDFLARE_ACCOUNT_ID") {
+        Ok(id) if !id.is_empty() => id,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(Error(
+                5,
+                "Clef-Flash Cloudflare Account ID environment value is not valid UTF-8".into(),
+            ));
+        }
+        _ => cfg.cloudflare_account_id.clone(),
+    };
     if !valid_account_id(&id) {
         return Err(Error(5, "Clef-Flash requires a 32-character hexadecimal Cloudflare Account ID; use jjump setup or CLOUDFLARE_ACCOUNT_ID".into()));
     }

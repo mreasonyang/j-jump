@@ -35,9 +35,11 @@ class LinuxCredentials(unittest.TestCase):
         result = self.cli('credential', 'delete', '--apply')
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def lookup(self):
-        return subprocess.run(['secret-tool', 'lookup', 'service', 'j-jump.jev',
-                               'username', 'typesafe-api-key'],
+    def lookup(self, provider='jev'):
+        service, username = ('j-jump.jev', 'typesafe-api-key') if provider == 'jev' else (
+            'j-jump.cloudflare', 'workers-ai-api-token')
+        return subprocess.run(['secret-tool', 'lookup', 'service', service,
+                               'username', username],
                               env=self.env, capture_output=True, timeout=10)
 
     def terminal(self, *args, env=None):
@@ -45,8 +47,9 @@ class LinuxCredentials(unittest.TestCase):
         self.addCleanup(t.close)
         return t
 
-    def key(self, t, secret):
-        t.until(b'Jev API key (hidden;')
+    def key(self, t, secret, provider='jev'):
+        label = 'Jev' if provider == 'jev' else 'Clef-Flash'
+        t.until((label + ' API key (hidden;').encode())
         self.assertFalse(termios.tcgetattr(t.fd)[3] & termios.ECHO)
         t.send(secret + '\r')
 
@@ -104,6 +107,88 @@ class LinuxCredentials(unittest.TestCase):
         self.assertFalse(self.config.exists())
         self.assertNotIn(b'Jev API key (hidden;', t.output)
         self.assertNotEqual(self.lookup().returncode, 0)
+        self.assert_private(t)
+
+    def cloudflare(self):
+        self.assertEqual(self.cli('config', 'set', 'provider', 'clef-flash').returncode, 0)
+        self.assertEqual(self.cli('config', 'set', 'cloudflare_account_id',
+                                  '00000000000000000000000000000001').returncode, 0)
+
+    def save_key(self, provider, value):
+        self.assertEqual(self.cli('config', 'set', 'provider', provider).returncode, 0)
+        t = self.terminal('credential', 'set')
+        self.key(t, value, provider)
+        t.until(b'Stored in OS credential store.')
+        self.assertEqual(self.lookup(provider).stdout.rstrip(b'\n'), value.encode())
+        self.assertNotIn(value.encode(), t.output)
+        self.assert_private(t)
+
+    def test_cloudflare_create_replace_delete(self):
+        self.cloudflare()
+        for value in (self.secret, self.secret + '-replacement'):
+            self.save_key('clef-flash', value)
+            self.assertEqual(json.loads(self.config.read_text())['cloudflare_credential'], 'system')
+        self.delete()
+        self.assertNotEqual(self.lookup('clef-flash').returncode, 0)
+
+    def test_real_provider_entries_remain_independent_when_switched_and_deleted(self):
+        jev = self.secret + '-jev'
+        cloudflare = self.secret + '-cloudflare'
+        self.save_key('jev', jev)
+        self.cloudflare()
+        self.save_key('clef-flash', cloudflare)
+        self.assertEqual(self.lookup('jev').stdout.rstrip(b'\n'), jev.encode())
+        cfg = json.loads(self.config.read_text())
+        self.assertEqual((cfg['credential'], cfg['cloudflare_credential']), ('system', 'system'))
+        self.delete()
+        self.assertNotEqual(self.lookup('clef-flash').returncode, 0)
+        self.assertEqual(self.lookup('jev').stdout.rstrip(b'\n'), jev.encode())
+        self.assertEqual(self.cli('config', 'set', 'provider', 'jev').returncode, 0)
+        self.delete()
+        self.assertNotEqual(self.lookup('jev').returncode, 0)
+
+    def test_cloudflare_cancel_preserves_saved_key_and_config(self):
+        self.cloudflare()
+        self.save_key('clef-flash', self.secret)
+        before = self.config.read_bytes()
+        t = self.terminal('credential', 'set')
+        self.key(t, 'discarded-synthetic-value\x03', 'clef-flash')
+        t.cancelled()
+        self.assertEqual(self.config.read_bytes(), before)
+        self.assertEqual(self.lookup('clef-flash').stdout.rstrip(b'\n'), self.secret.encode())
+        self.assert_private(t)
+
+    def test_cloudflare_setup_saves_hidden_key_to_real_service(self):
+        t = self.terminal('setup')
+        t.until(b'Semantic provider'); t.send('clef-flash\r')
+        t.until(b'Network permission'); t.send('\r')
+        t.until(b'Fields'); t.send('\r')
+        t.until(b'Cloudflare Account ID ['); t.send('00000000000000000000000000000001\r')
+        t.until(b'API key ['); t.send('enter\r')
+        self.key(t, self.secret, 'clef-flash')
+        t.until(b'Local visit tracking'); t.send('off\r')
+        t.until(b'Advanced settings')
+        self.assertFalse(self.config.exists())
+        self.assertNotEqual(self.lookup('clef-flash').returncode, 0)
+        t.send('\r'); t.until(b'Saved.')
+        cfg = json.loads(self.config.read_text())
+        self.assertEqual(cfg['provider'], 'clef-flash')
+        self.assertEqual(cfg['cloudflare_credential'], 'system')
+        self.assertEqual(self.lookup('clef-flash').stdout.rstrip(b'\n'), self.secret.encode())
+        self.assert_private(t)
+
+    def test_cloudflare_missing_service_preserves_config_and_refuses_plaintext(self):
+        self.cloudflare()
+        before = self.config.read_bytes()
+        env = dict(self.env, DBUS_SESSION_BUS_ADDRESS='unix:path=' + str(ROOT / 'absent.sock'))
+        self.assertEqual(self.cli('credential', 'status', env=env).returncode, 0)
+        t = self.terminal('credential', 'set', env=env)
+        t.until(b'J5:')
+        if b'no plaintext fallback' not in t.output:
+            t.until(b'no plaintext fallback')
+        self.assertEqual(self.config.read_bytes(), before)
+        self.assertNotIn(b'Clef-Flash API key (hidden;', t.output)
+        self.assertNotEqual(self.lookup('clef-flash').returncode, 0)
         self.assert_private(t)
 
 

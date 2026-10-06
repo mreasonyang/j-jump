@@ -119,6 +119,7 @@ jjump config set semantic on
 
 `CLOUDFLARE_API_TOKEN` is an alias, used when `CLOUDFLARE_AUTH_TOKEN` is absent or empty.
 `CLOUDFLARE_ACCOUNT_ID` overrides the saved `cloudflare_account_id`; tokens override only their own provider's stored key.
+An invalid nonempty Account ID environment value blocks requests. Correct it, or unset it to use the saved account.
 Switch back with `jjump config set provider jev`. Jev remains the default, and enabling either provider is a separate setting.
 `jjump credential status/set/delete` operates on the selected provider. Switching discards an unsaved key draft;
 previously saved provider credentials are kept. Requests use the [official Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/),

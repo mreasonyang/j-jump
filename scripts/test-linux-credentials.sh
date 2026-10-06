@@ -15,7 +15,8 @@ trap 'rm -rf -- "$root"' EXIT HUP INT TERM
 export HOME="$root" XDG_DATA_HOME="$root/data" XDG_CONFIG_HOME="$root/config"
 export XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime"
 export JJ_TEST_BIN="$binary" JJ_ISOLATED_CREDENTIAL_TEST="$root" J_JUMP_LANG=en
-unset TYPESAFE_API_KEY J_JUMP_HOME J_JUMP_CONFIG DBUS_SESSION_BUS_ADDRESS
+unset TYPESAFE_API_KEY CLOUDFLARE_AUTH_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+unset J_JUMP_HOME J_JUMP_CONFIG DBUS_SESSION_BUS_ADDRESS
 mkdir -m 700 "$XDG_RUNTIME_DIR"
 dbus-run-session -- sh -eu -c '
     printf %s synthetic-disposable-keyring-password | gnome-keyring-daemon --unlock --components=secrets > "$XDG_RUNTIME_DIR/daemon.env"

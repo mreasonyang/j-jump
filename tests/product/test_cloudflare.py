@@ -1,6 +1,7 @@
 """Provider selection and real PTY setup; synthetic keys, no live cloud calls."""
 import contextlib
 import json
+from pathlib import Path
 import subprocess
 import termios
 import unittest
@@ -96,6 +97,33 @@ class Cloudflare(unittest.TestCase):
         self.cli('config', 'set', 'semantic', 'on')
         self.assertEqual(self.cli('query', 'alpha').stdout.strip(), str(self.target).encode())
 
+    def test_invalid_account_environment_never_falls_back_to_saved_account(self):
+        self.env.pop('J_JUMP_OFFLINE')
+        self.cli('config', 'set', 'provider', 'clef-flash')
+        self.cli('config', 'set', 'cloudflare_account_id', ACCOUNT)
+        self.cli('config', 'set', 'semantic', 'on')
+        self.env['CLOUDFLARE_AUTH_TOKEN'] = SECRET
+        for value in ('../wrong-account', b'\xff'):
+            with self.subTest(value=value):
+                status = json.loads(self.cli('doctor', '--json',
+                                            extra={'CLOUDFLARE_ACCOUNT_ID': value}).stdout)
+                self.assertFalse(status['environment_ready'])
+                output = self.cli('doctor', extra={'CLOUDFLARE_ACCOUNT_ID': value}).stdout
+                self.assertIn(b'Account ID missing or invalid', output)
+                env = dict(self.env, CLOUDFLARE_ACCOUNT_ID=value)
+                t = Terminal([str(first.BIN), '--force-semantic', 'query', 'backend'],
+                             env, self.cwd)
+                try:
+                    t.until(b'J5:')
+                    self.assertNotIn(b'Choose a directory', t.output)
+                    self.assertNotIn(SECRET.encode(), t.output)
+                finally:
+                    t.close()
+                self.assertFalse((Path(self.env['J_JUMP_HOME']) / 'cache/semantic-cache.db').exists())
+        status = json.loads(self.cli('doctor', '--json',
+                                    extra={'CLOUDFLARE_ACCOUNT_ID': ''}).stdout)
+        self.assertTrue(status['environment_ready'])
+
     def test_hidden_cloudflare_token_saves_to_selected_entry(self):
         with self.process(fixture=True) as t:
             self.choose(t); t.send('enter\r')
@@ -166,7 +194,7 @@ class CloudflareSelection(unittest.TestCase):
                 self.assertIn(b'[Clef-Flash]', t.output)
                 self.assertIn(b'Clef-Flash suggestion:', t.output)
                 self.assertNotIn(b'[Jev]', t.output)
-                t.send('1\r'); t.drain(.15)
+                t.send_and_wait_prompt('1\r')
                 t.cmd('printf "WHERE:%s\\n" "$PWD"', 'SELECTED')
                 self.assertIn(('WHERE:' + str(self.target)).encode(), t.output)
                 self.assertNotIn(SECRET.encode(), t.output)

@@ -89,7 +89,7 @@ class CurrentContract(unittest.TestCase):
         self.env.pop('J_JUMP_PICKER')
         for shell in ('bash', 'zsh', 'fish'):
             with self.subTest(shell=shell), self.shell(shell) as t:
-                t.send('ji\r'); t.until(b'Empty/q: cancel'); t.send('q\r'); t.cancelled()
+                t.send('ji\r'); t.until(b'Empty/q: cancel'); t.send_and_wait_prompt('q\r'); t.cancelled()
                 self.assertFalse(marker.exists())
         self.env['J_JUMP_PICKER'] = 'typo'
         with self.process('query', '--interactive') as t:
@@ -101,7 +101,7 @@ class CurrentContract(unittest.TestCase):
             with self.subTest(shell=shell), self.shell(shell) as t:
                 t.send('ji not-in-history\r'); t.until(b'J3:')
                 self.assertNotIn(b'Choose a directory', t.output)
-                t.send('ji\r'); t.until(b'Choose a directory'); t.send('1\r'); t.drain(.15)
+                t.send('ji\r'); t.until(b'Choose a directory'); t.send_and_wait_prompt('1\r')
                 t.cmd('printf "WHERE:%s\\n" "$PWD"', 'BROWSED')
                 self.assertIn(os.fsencode('WHERE:' + str(self.target)), t.output)
 
@@ -201,7 +201,7 @@ class CurrentContract(unittest.TestCase):
             with self.subTest(shell=shell), self.shell(shell) as t, self.adapter_reply('valid') as frames:
                 t.send('ji notlexical\r'); t.until(b'Empty/q: cancel')
                 self.assertIn(b'[Jev]', t.output)
-                t.send('1\r'); t.drain(.15)
+                t.send_and_wait_prompt('1\r')
                 t.cmd('printf "WHERE:%s\\n" "$PWD"', 'SELECTED')
                 self.assertIn(os.fsencode('WHERE:' + str(self.target)), t.output)
                 self.assertEqual(frames, ['Send']); self.assert_dispatch()
