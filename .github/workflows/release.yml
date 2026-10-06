@@ -29,6 +29,16 @@
             "x86_64-unknown-linux-musl",
             "aarch64-unknown-linux-musl"
           ]
+        },
+        "homebrew_acceptance_only": {
+          "description": "Only test an already published release through isolated native Homebrew; cannot publish",
+          "type": "boolean",
+          "default": false
+        },
+        "homebrew_tap_sha": {
+          "description": "Exact matching tap commit (40 hex characters), required for Homebrew acceptance",
+          "type": "string",
+          "default": ""
         }
       }
     }
@@ -73,9 +83,11 @@
             "REQUEST_TAP": "${{ inputs.update_homebrew }}",
             "PUBLISH_ENABLED": "${{ vars.J_JUMP_PUBLISH_ENABLED }}",
             "TAP_TOKEN_AVAILABLE": "${{ secrets.J_JUMP_DISTRIBUTION_TOKEN != '' }}",
-            "REQUEST_TARGET": "${{ inputs.build_target }}"
+            "REQUEST_TARGET": "${{ inputs.build_target }}",
+            "REQUEST_BREW_QA": "${{ inputs.homebrew_acceptance_only }}",
+            "BREW_TAP_SHA": "${{ inputs.homebrew_tap_sha }}"
           },
-          "run": "set -euo pipefail\nREQUEST_TARGET=\"${REQUEST_TARGET:-all}\"\nif [[ -n \"$REQUEST_TARGET\" && \"$REQUEST_TARGET\" != all && ( \"$REQUEST_PUBLISH\" == true || \"$REQUEST_TAP\" == true ) ]]; then echo \"Single-target repair builds cannot publish; select all targets\" >&2; exit 1; fi\nif [[ \"$REQUEST_PUBLISH\" == true && \"$PUBLISH_ENABLED\" != true ]]; then echo \"Publication is deferred; activate it only after separate authorization\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$REQUEST_PUBLISH\" != true ]]; then echo \"Tap update requires publication in the same run\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$TAP_TOKEN_AVAILABLE\" != true ]]; then echo \"Tap update requires the scoped J_JUMP_DISTRIBUTION_TOKEN secret before publication\" >&2; exit 1; fi\ngit merge-base --is-ancestor HEAD refs/remotes/origin/main\ngit switch -C main\n./scripts/install-hooks.sh\npython3 scripts/release.py check-source --tag \"$RELEASE_TAG\"\npython3 -m unittest discover -s tests -p 'test_*.py'\n./scripts/verify-workflow.sh --local"
+          "run": "set -euo pipefail\nif [[ \"${REQUEST_BREW_QA:-false}\" == true ]]; then\n  if [[ \"$REQUEST_PUBLISH\" == true || \"$REQUEST_TAP\" == true ]]; then echo \"Homebrew acceptance cannot publish or update the tap\" >&2; exit 1; fi\n  if [[ ! \"${BREW_TAP_SHA:-}\" =~ ^[0-9a-f]{40}$ ]]; then echo \"Homebrew acceptance requires an immutable tap commit\" >&2; exit 1; fi\nfi\nREQUEST_TARGET=\"${REQUEST_TARGET:-all}\"\nif [[ -n \"$REQUEST_TARGET\" && \"$REQUEST_TARGET\" != all && ( \"$REQUEST_PUBLISH\" == true || \"$REQUEST_TAP\" == true ) ]]; then echo \"Single-target repair builds cannot publish; select all targets\" >&2; exit 1; fi\nif [[ \"$REQUEST_PUBLISH\" == true && \"$PUBLISH_ENABLED\" != true ]]; then echo \"Publication is deferred; activate it only after separate authorization\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$REQUEST_PUBLISH\" != true ]]; then echo \"Tap update requires publication in the same run\" >&2; exit 1; fi\nif [[ \"$REQUEST_TAP\" == true && \"$TAP_TOKEN_AVAILABLE\" != true ]]; then echo \"Tap update requires the scoped J_JUMP_DISTRIBUTION_TOKEN secret before publication\" >&2; exit 1; fi\ngit merge-base --is-ancestor HEAD refs/remotes/origin/main\ngit switch -C main\n./scripts/install-hooks.sh\npython3 scripts/release.py check-source --tag \"$RELEASE_TAG\"\npython3 -m unittest discover -s tests -p 'test_*.py'\n./scripts/verify-workflow.sh --local"
         }
       ]
     },
@@ -106,12 +118,13 @@
         },
         {
           "name": "Install fixed Rust toolchain",
-          "run": "rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy\nrustup default 1.98.0"
+          "run": "rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy\nrustup default 1.98.0",
+          "if": "${{ !inputs.homebrew_acceptance_only }}"
         },
         {
           "name": "Install Linux test/build dependencies",
           "if": "${{ runner.os == 'Linux' }}",
-          "run": "sudo apt-get update\nsudo apt-get install -y zsh fish fzf pkg-config musl-tools"
+          "run": "sudo apt-get update\nsudo apt-get install -y zsh fish fzf pkg-config musl-tools build-essential"
         },
         {
           "name": "Install macOS test dependencies",
@@ -126,7 +139,8 @@
           "env": {
             "PYTHONPATH": "tests"
           },
-          "run": "for attempt in 1 2 3; do\n  python3 -m unittest test_verify_workflow.WorkflowValidatorTests.test_documentation_change_does_not_require_product_claim -v\ndone"
+          "run": "for attempt in 1 2 3; do\n  python3 -m unittest test_verify_workflow.WorkflowValidatorTests.test_documentation_change_does_not_require_product_claim -v\ndone",
+          "if": "${{ !inputs.homebrew_acceptance_only }}"
         },
         {
           "name": "Test source and exact installed archive",
@@ -135,7 +149,8 @@
             "RELEASE_TAG": "${{ inputs.tag }}",
             "skip_global_compinit": "1"
           },
-          "run": "git switch -C main\n./scripts/ci-release.sh \"$RELEASE_TARGET\" \"$RELEASE_TAG\""
+          "run": "git switch -C main\n./scripts/ci-release.sh \"$RELEASE_TARGET\" \"$RELEASE_TAG\"",
+          "if": "${{ !inputs.homebrew_acceptance_only }}"
         },
         {
           "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -143,6 +158,37 @@
             "name": "release-${{ matrix.target }}",
             "path": "dist/*.tar.gz\ndist/*.tar.gz.sha256",
             "if-no-files-found": "error",
+            "retention-days": 7
+          },
+          "if": "${{ !inputs.homebrew_acceptance_only }}"
+        },
+        {
+          "name": "Check out acceptance tools at the exact workflow revision",
+          "if": "${{ inputs.homebrew_acceptance_only }}",
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ github.sha }}",
+            "path": "validation-tools",
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Test public native Homebrew lifecycle in a disposable prefix",
+          "if": "${{ inputs.homebrew_acceptance_only }}",
+          "env": {
+            "RELEASE_TARGET": "${{ matrix.target }}",
+            "BREW_TAP_SHA": "${{ inputs.homebrew_tap_sha }}"
+          },
+          "run": "python3 validation-tools/scripts/test-homebrew-release.py --version \"$(cat VERSION)\" --source-sha \"$(git rev-parse HEAD)\" --target \"$RELEASE_TARGET\" --tap-sha \"$BREW_TAP_SHA\" --report \"${{ runner.temp }}/homebrew-acceptance.json\""
+        },
+        {
+          "name": "Retain native Homebrew acceptance result",
+          "if": "${{ always() && inputs.homebrew_acceptance_only }}",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "homebrew-${{ matrix.target }}",
+            "path": "${{ runner.temp }}/homebrew-acceptance.json",
+            "if-no-files-found": "warn",
             "retention-days": 7
           }
         }
@@ -204,7 +250,7 @@
           }
         }
       ],
-      "if": "${{ inputs.build_target == 'all' || inputs.build_target == '' }}"
+      "if": "${{ !inputs.homebrew_acceptance_only && (inputs.build_target == 'all' || inputs.build_target == '') }}"
     },
     "publish": {
       "needs": "bundle",

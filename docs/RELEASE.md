@@ -96,6 +96,32 @@ The only workflow is `.github/workflows/release.yml`. It uses workflow_dispatch 
 
 `J_JUMP_ACTIONS_ENABLED` must equal `true` before build jobs can run. Publication additionally requires `J_JUMP_PUBLISH_ENABLED=true` and explicit publish input; publish and update_homebrew default false. Manual builds have been explicitly authorized and the build variable is enabled. Publication remains separately gated; do not enable it or dispatch publication without explicit authority. A guard is not a guarantee that a manual dispatch has no billing cost.
 
+For an already published release, the same guarded workflow has an opt-in `homebrew_acceptance_only` mode.
+Supply the source `tag` and exact matching `homebrew_tap_sha`; `build_target=all` runs four native systems,
+or choose one target for a focused check. This mode skips compilation and bundle generation and refuses
+publication or tap updates. It runs the public lifecycle test from the exact workflow revision against
+the immutable release source, without changing the release assets.
+
+The same test can be run locally on a supported native target with Python 3, Git, curl, Bash, Zsh, Fish,
+a C compiler and make (for Homebrew's Formula test dependencies):
+
+```sh
+results=$(mktemp -d)
+python3 scripts/test-homebrew-release.py \
+  --version 0.0.38 --source-sha 2fd2ce746f6b67093270c16bed4d1ddf2370fed2 \
+  --target x86_64-unknown-linux-musl \
+  --tap-sha 80e8db4be3c24752b361c5bc699c92167c916448 \
+  --report "$results/homebrew.json"
+```
+
+Change `--target` to the host's native archive target. The test creates an independent Homebrew 7.0.8
+prefix, synthetic home and cache, then removes them on exit. It installs the real public Formula,
+checks the installed binary against the public release manifest, tests repeat installation and
+reinstallation, and upgrades the public 0.0.35 Formula to 0.0.38. It checks `brew test`, Bash/Zsh/Fish
+startup and offline navigation, exact shell integration undo, and configuration/visit preservation
+through upgrade, reinstall and uninstall. Inherited provider credentials and shell hooks are excluded.
+On Linux the prefix is outside `/tmp` and `/var/tmp` so Homebrew's sandbox can protect its repository.
+
 The local validator rejects automatic events, alternate workflows, unpinned actions, missing guards and bypasses around the job dependency chain. The pre-push hook remains main-only and fast-forward. A future automatic tag trigger requires a new approved change to that policy.
 
 ## Local preparation

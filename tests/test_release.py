@@ -236,7 +236,7 @@ class ReleaseTests(unittest.TestCase):
         workflow = json.loads((ROOT / ".github/workflows/release.yml").read_text())
         step = next(item for item in workflow["jobs"]["preflight"]["steps"] if "run" in item)
         self.assertEqual("${{ secrets.J_JUMP_DISTRIBUTION_TOKEN != '' }}", step["env"]["TAP_TOKEN_AVAILABLE"])
-        env = dict(os.environ, REQUEST_TARGET="all", REQUEST_PUBLISH="true", REQUEST_TAP="true", PUBLISH_ENABLED="true",
+        env = dict(os.environ, REQUEST_BREW_QA="false", REQUEST_TARGET="all", REQUEST_PUBLISH="true", REQUEST_TAP="true", PUBLISH_ENABLED="true",
                    TAP_TOKEN_AVAILABLE="false", RELEASE_TAG="v0.0.27")
         with tempfile.TemporaryDirectory() as empty:
             result = subprocess.run(["bash", "-c", step["run"]], cwd=empty, env=env, capture_output=True, text=True)
@@ -249,13 +249,31 @@ class ReleaseTests(unittest.TestCase):
         step = next(item for item in workflow["jobs"]["preflight"]["steps"] if "run" in item)
         for publication, tap in (("true", "false"), ("false", "true")):
             with self.subTest(publication=publication, tap=tap), tempfile.TemporaryDirectory() as empty:
-                env = dict(os.environ, REQUEST_TARGET="x86_64-apple-darwin", REQUEST_PUBLISH=publication,
+                env = dict(os.environ, REQUEST_BREW_QA="false", REQUEST_TARGET="x86_64-apple-darwin", REQUEST_PUBLISH=publication,
                            REQUEST_TAP=tap, PUBLISH_ENABLED="true", TAP_TOKEN_AVAILABLE="true",
                            RELEASE_TAG="v0.0.27")
                 result = subprocess.run(["bash", "-c", step["run"]], cwd=empty, env=env,
                                         capture_output=True, text=True)
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("Single-target repair builds cannot publish", result.stderr)
+                self.assertNotIn("not a git repository", result.stderr)
+
+    def test_homebrew_acceptance_cannot_publish_or_use_a_mutable_tap(self):
+        workflow = json.loads((ROOT / ".github/workflows/release.yml").read_text())
+        inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertIs(inputs["homebrew_acceptance_only"]["default"], False)
+        step = next(item for item in workflow["jobs"]["preflight"]["steps"] if "run" in item)
+        cases = [("true", "false", "a" * 40, "cannot publish"),
+                 ("false", "true", "a" * 40, "cannot publish"),
+                 ("false", "false", "main", "immutable tap commit")]
+        for publication, tap, revision, reason in cases:
+            with self.subTest(publication=publication, tap=tap, revision=revision), tempfile.TemporaryDirectory() as empty:
+                env = dict(os.environ, REQUEST_BREW_QA="true", REQUEST_TARGET="all",
+                           REQUEST_PUBLISH=publication, REQUEST_TAP=tap, BREW_TAP_SHA=revision)
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=empty, env=env,
+                                        capture_output=True, text=True)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(reason, result.stderr)
                 self.assertNotIn("not a git repository", result.stderr)
 
     def test_private_release_and_existing_assets_cannot_be_published(self):
