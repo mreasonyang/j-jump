@@ -191,6 +191,36 @@ class LinuxCredentials(unittest.TestCase):
         self.assertNotEqual(self.lookup('clef-flash').returncode, 0)
         self.assert_private(t)
 
+    def test_back_after_provider_switch_preserves_both_existing_system_keys(self):
+        jev, cloudflare = self.secret + '-jev', self.secret + '-cloudflare'
+        try:
+            self.save_key('jev', jev)
+            self.cloudflare()
+            self.save_key('clef-flash', cloudflare)
+            for source, destination in (('jev', 'clef-flash'), ('clef-flash', 'jev')):
+                with self.subTest(source=source):
+                    self.assertEqual(self.cli('config', 'set', 'provider', source).returncode, 0)
+                    t = self.terminal('setup')
+                    menu = b's Save; q Exit without saving'
+                    t.until(menu); t.send('6\r')
+                    if source == 'clef-flash':
+                        t.until(b'Cloudflare Account ID ['); t.send('\r')
+                    t.until(b'API key ['); t.send('enter\r')
+                    self.key(t, 'discarded-pending-key', source)
+                    t.until(menu); t.send('1\r')
+                    t.until(b'Semantic provider'); t.send(destination + '\r')
+                    t.until(b'Network permission'); t.send('b\r')
+                    t.until(b'Semantic provider'); t.send('b\r')
+                    t.until(menu); t.send('s\r'); t.until(b'Saved.')
+                    self.assertEqual(self.lookup('jev').stdout.rstrip(b'\n'), jev.encode())
+                    self.assertEqual(self.lookup('clef-flash').stdout.rstrip(b'\n'), cloudflare.encode())
+                    self.assertNotIn(b'discarded-pending-key', t.output)
+                    self.assert_private(t)
+        finally:
+            for provider in ('jev', 'clef-flash'):
+                self.cli('config', 'set', 'provider', provider)
+                self.delete()
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

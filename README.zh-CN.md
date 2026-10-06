@@ -66,7 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 | `j -` | 回到上一个目录 |
 | `j ../dir`、`j -- 'my folder'` | 也可以直接写路径 |
 | `ji` | 用编号列表浏览全部访问记录 |
-| `ji pay` | 从匹配结果中选择；开启 Jev 后会先问 Jev |
+| `ji pay` | 从匹配结果中选择；开启语义查找后会先询问所选服务商 |
 | 输入 `j pay ` 后按 <kbd>Tab</kbd> | 把选中的目录填进命令行，按 <kbd>Enter</kbd> 才执行 |
 
 **匹配如何排序：** 目录名完全相同优先，其次是前缀匹配、包含匹配，最后是上级目录匹配。同一档内，常去和最近去过的目录排在前面，访问权重每七天减半。想知道为什么是这个结果，运行 `jjump explain pay`。
@@ -79,13 +79,16 @@ Jev 和 Cloudflare Clef-Flash 是可选的语义模型服务，**默认关闭**�
 
 **开启方法：** 运行 `jjump setup`，选择 Jev 并粘贴 Key。输入内容不会显示，Key 保存在系统凭证库中，不会写入任何文件。也可以在环境变量中设置 `TYPESAFE_API_KEY`，再运行 `jjump config set semantic on`。仅配置 Key 并不会开启请求。
 
-**什么时候会问 Jev：**
+向导中的 `off` 表示只用本地导航。Key 步骤的 `skip` 表示不使用已保存的 Key，环境凭据仍会生效。
+若要关闭云端请求，请选择 `off`，或运行 `jjump config set semantic off`。
 
-- `j pay` 在本地有匹配时直接跳转，不会联系 Jev；只有本地完全没有匹配时，才可能询问 Jev。
-- 开启后，`ji 查询词` 和带查询词的 <kbd>Tab</kbd> 补全会询问 Jev。不带参数的 `ji`、`--offline` 和 `J_JUMP_OFFLINE=1` 只在本地查找。
-- Jev 推荐的目录会排在列表第一位并标注 `[Jev]`，仍需你亲自选择；取消不会选中任何目录。
-- 默认 `consent ask`，每次请求前都会征求你的同意；`jjump config set consent always` 可跳过确认。Jev 服务可能按请求计费。
-- 每次请求最多等待 10 秒。等待时按回车切换到本地候选，按 `W` 继续等待。出错、超时或 Jev 无法确定时都会停下，不会替你跳转。
+**什么时候会询问所选服务商：**
+
+- `j pay` 在本地有匹配时直接跳转，不会联系服务商；只有本地完全没有匹配时，才可能询问服务商。
+- 开启后，`ji 查询词` 和带查询词的 <kbd>Tab</kbd> 补全会询问所选服务商。不带参数的 `ji`、`--offline` 和 `J_JUMP_OFFLINE=1` 只在本地查找。
+- 推荐的目录会排在列表第一位并标注 `[Jev]` 或 `[Clef-Flash]`，仍需你亲自选择；取消不会选中任何目录。
+- 默认 `consent ask`，每次请求前都会征求你的同意；`jjump config set consent always` 可跳过确认。所选服务商可能按请求计费。
+- 每次请求最多等待 10 秒。等待时按回车切换到本地候选，按 `W` 继续等待。出错、超时或服务商无法确定时都会停下，不会替你跳转。
 
 ### 选择 Cloudflare Clef-Flash
 
@@ -102,11 +105,12 @@ jjump config set semantic on
 `CLOUDFLARE_API_TOKEN` 是备用名称，仅在 `CLOUDFLARE_AUTH_TOKEN` 未设置或为空时使用。
 `CLOUDFLARE_ACCOUNT_ID` 优先于配置中的 `cloudflare_account_id`；各家的环境凭证仅覆盖对应的系统凭证。
 非空但无效的 Account ID 环境变量会阻止请求；请更正它，或清除它以使用已保存的账户。
+无效的环境 Key/Token 也会阻止云端请求；`doctor` 会在本地检查其格式，不发送或显示凭据内容。
 运行 `jjump config set provider jev` 可切回官方 Jev API。默认仍为 Jev；选服务商与开启语义服务分别配置。
 `jjump credential status/set/delete` 只管理当前所选服务商的凭证。向导切换服务商会丢弃未保存的 Key 草稿，
 已保存的两家凭证会保留。Clef-Flash 使用 [Cloudflare 官方 Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/) 和 `clef-flash` 模型。
 两家共用隐私、联网许可、离线模式和手动选择规则；推荐标注所选服务商。缓存绑定服务商、账户和凭证；
-失败时不会自动改用另一家。`doctor` 仅检查本地配置，不会发送云端测试请求。
+失败时不会自动改用另一家。`doctor` 仅检查本地配置，不能确认 API 权限，不会发送云端测试请求。
 
 ### 所选服务商能看到什么
 

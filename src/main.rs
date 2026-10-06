@@ -442,8 +442,15 @@ fn pick(candidates: &[Candidate], suggested: Option<&str>, provider: &str) -> Re
                 .map_err(|_| Error(130, "terminal closed".into()))?;
         }
         if suggested.is_some() {
-            writeln!(f, "{provider} suggestion: first; choose explicitly")
-                .map_err(|_| Error(130, "terminal closed".into()))?;
+            writeln!(
+                f,
+                "{provider} {}",
+                ui::tr(
+                    "suggestion: first; choose explicitly",
+                    "建议排在首位；请自行选择"
+                )
+            )
+            .map_err(|_| Error(130, "terminal closed".into()))?;
         }
         writeln!(f, "{}", ui::tr("Choose a directory", "选择目录"))
             .map_err(|_| Error(130, "terminal closed".into()))?;
@@ -656,7 +663,7 @@ fn query(
         return Err(Error(
             5,
             format!(
-                "forced {} needs a key; {}",
+                "forced {} unavailable; {}",
                 cfg.provider.label(),
                 ui::missing_key_notice(&cfg)
             )
@@ -772,7 +779,8 @@ fn query(
             let (payload, sent) = provider::request(&query, &candidates, &cwd, paths, &cfg)?;
             candidates.truncate(sent);
             let prep_elapsed = semantic_prep.elapsed();
-            let allow=cfg.consent=="always"||ask(&format!("Send query and {} eligible directory names to {} ({}, default network)? [y/N] ",candidates.len(),cfg.provider.label(),cfg.privacy))?.eq_ignore_ascii_case("y");
+            let allow = cfg.consent == "always"
+                || ask(&ui::consent_prompt(&cfg, candidates.len()))?.eq_ignore_ascii_case("y");
             if allow {
                 let deadline =
                     Instant::now() + adapter::INTERACTIVE_DEADLINE.saturating_sub(prep_elapsed);
@@ -839,7 +847,13 @@ fn query(
                         }
                     }
                     Some(Err(e)) => {
-                        return Err(Error(e.0, e.1.replace("Jev", cfg.provider.label()).into()));
+                        let detail = e.1.replace("Jev", cfg.provider.label());
+                        let detail = if detail.contains(cfg.provider.label()) {
+                            detail
+                        } else {
+                            format!("{}: {detail}", cfg.provider.label())
+                        };
+                        return Err(Error(e.0, detail.into()));
                     }
                     None => local_choice = true,
                 }
@@ -1484,7 +1498,7 @@ fn run() -> Result<()> {
             let ready = cfg.as_ref().is_ok_and(|c| {
                 c.semantic
                     && j_jump::credential::environment_name(c.provider).is_some()
-                    && provider::account_id(c).is_ok()
+                    && ui::credential_available(c)
             }) && !offline;
             let healthy = config_ok && store_ok;
             let config_error = cfg.as_ref().err().map(|e| e.1.as_ref());

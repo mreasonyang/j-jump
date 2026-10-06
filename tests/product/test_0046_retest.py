@@ -77,7 +77,7 @@ class RetestRemediation(unittest.TestCase):
             self.assertNotIn(b'[y/N]', t.output)
         with self.terminal('--force-semantic', 'query', 'backend') as t:
             self.assertEqual(t.wait(), 5)
-            self.assertIn(b'forced Jev needs a key', t.output)
+            self.assertIn(b'forced Jev unavailable', t.output)
 
     def test_chinese_busy_error_is_consistent(self):
         """AC-004."""

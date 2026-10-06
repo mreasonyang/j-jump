@@ -76,7 +76,7 @@ change everything later with `jjump setup`.
 | `j -` | Go back to the previous folder |
 | `j ../dir`, `j -- 'my folder'` | Plain paths work too |
 | `ji` | Browse your history in a numbered list |
-| `ji pay` | Choose from matches; asks Jev first when it's enabled |
+| `ji pay` | Choose from matches; asks the selected provider first when semantic help is enabled |
 | `j pay ` then <kbd>Tab</kbd> | Choose a match into the command line, then press <kbd>Enter</kbd> to go |
 
 **How matches are ranked:** exact folder name, then prefix, then substring, then a match on a parent folder. Within each
@@ -94,14 +94,17 @@ Jev and Cloudflare Clef-Flash are optional semantic model services. Semantic hel
 credential store, never to a file. Alternatively, set `TYPESAFE_API_KEY` in your environment and run
 `jjump config set semantic on`. A key alone never enables requests.
 
-**When Jev is asked:**
+In setup, `off` keeps navigation local. At the key step, `skip` stops using the stored key, while environment keys still apply.
+To turn off cloud requests, choose `off` or run `jjump config set semantic off`.
 
-- `j pay` with a local match jumps immediately and never contacts Jev. Only when nothing matches locally may it ask Jev.
-- `ji QUERY` and <kbd>Tab</kbd> completion with a query ask Jev when it's enabled. A bare `ji`, `--offline` and
+**When the selected provider is asked:**
+
+- `j pay` with a local match jumps immediately and never contacts the provider. Only when nothing matches locally may it ask the provider.
+- `ji QUERY` and <kbd>Tab</kbd> completion with a query ask the selected provider when semantic help is enabled. A bare `ji`, `--offline` and
   `J_JUMP_OFFLINE=1` stay local.
-- Jev's pick is marked `[Jev]` at the top of the list, and you still choose. Cancelling never picks anything.
+- The suggestion is marked `[Jev]` or `[Clef-Flash]` at the top of the list, and you still choose. Cancelling never picks anything.
 - With the default `consent ask`, J-Jump confirms before each request. `jjump config set consent always` skips that.
-  The Jev service may charge per request.
+  The selected service may charge per request.
 - A request waits up to 10 seconds. While waiting, press Enter to switch to local choices or `W` to keep waiting.
   Errors, timeouts and "not sure" answers stop without moving you.
 
@@ -120,12 +123,13 @@ jjump config set semantic on
 `CLOUDFLARE_API_TOKEN` is an alias, used when `CLOUDFLARE_AUTH_TOKEN` is absent or empty.
 `CLOUDFLARE_ACCOUNT_ID` overrides the saved `cloudflare_account_id`; tokens override only their own provider's stored key.
 An invalid nonempty Account ID environment value blocks requests. Correct it, or unset it to use the saved account.
+Invalid environment keys/tokens also block cloud requests; `doctor` checks their format locally without sending or displaying them.
 Switch back with `jjump config set provider jev`. Jev remains the default, and enabling either provider is a separate setting.
 `jjump credential status/set/delete` operates on the selected provider. Switching discards an unsaved key draft;
 previously saved provider credentials are kept. Requests use the [official Workers AI REST API](https://developers.cloudflare.com/workers-ai/models/clef-flash/),
 with the `clef-flash` model. Privacy, consent, offline mode and explicit selection apply to both providers; suggestions
 are labelled with the selected provider. Cached responses are bound to provider, account and credential. Failed requests
-never switch providers automatically. `doctor` checks configuration locally; it does not test cloud inference.
+never switch providers automatically. `doctor` checks configuration locally; it does not verify API permissions or test cloud inference.
 
 ### What the selected provider can see
 

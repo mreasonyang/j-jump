@@ -72,6 +72,23 @@ fn value(cfg: &mut Config, key: &str, prompt: &str) -> Result<bool> {
 fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
     let mut step = start;
     loop {
+        if step == 0 {
+            eprintln!(
+                "{}",
+                ui::tr(
+                    "off: local navigation only; no cloud requests.\njev: official Jev API; needs a Jev key.\nclef-flash: Cloudflare Workers AI; needs an Account ID and API token.",
+                    "off：仅本地导航，不发送云端请求。\njev：官方 Jev API，需要 Jev Key。\nclef-flash：Cloudflare Workers AI，需要 Account ID 和 API Token。"
+                )
+            );
+        } else if step == 1 {
+            eprintln!(
+                "{}",
+                ui::tr(
+                    "ask: confirm before each request; always: allow requests without asking.",
+                    "ask：每次请求前确认；always：允许请求，不再逐次询问。"
+                )
+            );
+        }
         let (key, prompt) = match step {
             0 => (
                 "semantic",
@@ -129,10 +146,13 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
         eprintln!(
             "{}",
             ui::tr(
-                "Cloudflare Workers AI needs an Account ID and API token. CLOUDFLARE_ACCOUNT_ID overrides the saved ID; Enter can leave it for later.",
-                "Cloudflare Workers AI 需要 Account ID 和 API Token。CLOUDFLARE_ACCOUNT_ID 优先于保存的 ID；可按 Enter 稍后配置。"
+                "Cloudflare Workers AI needs an Account ID (32 hexadecimal characters) and API token. CLOUDFLARE_ACCOUNT_ID overrides the saved ID; Enter keeps the current value, including an empty value for later setup.",
+                "Cloudflare Workers AI 需要 Account ID（32 位十六进制字符）和 API Token。CLOUDFLARE_ACCOUNT_ID 优先于保存的 ID；Enter 保留当前值，也可暂留空值稍后配置。"
             )
         );
+        if let Some(notice) = ui::account_override_notice(cfg) {
+            eprintln!("{notice}");
+        }
         let prompt = format!(
             "{} [{}]: ",
             ui::tr("Cloudflare Account ID", "Cloudflare Account ID"),
@@ -161,7 +181,17 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
                     "已检测到，它优先于系统存储的 Key。"
                 )
             );
+            if let Some(notice) = ui::invalid_credential_notice(cfg) {
+                eprintln!("{notice}");
+            }
         }
+        eprintln!(
+            "{}",
+            ui::tr(
+                "enter: type a new key; keep: retain the current choice; environment: use the detected environment key.\nskip: stop using the stored key; environment keys still apply. Choose off to disable cloud requests.",
+                "enter：输入新 Key；keep：保留当前选择；environment：使用已检测到的环境凭据。\nskip：不使用已保存的 Key；环境凭据仍会生效。请选择 off 关闭云端请求。"
+            )
+        );
         eprintln!(
             "{}: {}",
             ui::tr("Key choice", "Key 选择"),
@@ -247,11 +277,12 @@ fn key(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool
 fn network(cfg: &mut Config, pending: &mut Option<Zeroizing<String>>) -> Result<bool> {
     loop {
         let previous_provider = cfg.provider;
-        if !semantic(cfg, 0)? {
-            return Ok(false);
-        }
+        let completed = semantic(cfg, 0)?;
         if previous_provider != cfg.provider {
             *pending = None;
+        }
+        if !completed {
+            return Ok(false);
         }
         if !cfg.semantic {
             *pending = None;
@@ -280,10 +311,17 @@ fn readiness(cfg: &Config, pending: &Option<Zeroizing<String>>) {
         if line == "jjump setup" {
             eprintln!(
                 "{}",
-                ui::tr(
-                    "Back → 6 API key to enter a Key here.",
-                    "返回 → 6 API Key，在这里填写 Key。"
-                )
+                if cfg.provider == Provider::ClefFlash {
+                    ui::tr(
+                        "Back → 6 API key to configure the Account ID and API token here.",
+                        "返回 → 6 API Key，在这里配置 Account ID 和 API Token。",
+                    )
+                } else {
+                    ui::tr(
+                        "Back → 6 API key to enter a Key here.",
+                        "返回 → 6 API Key，在这里填写 Key。",
+                    )
+                }
             );
         } else if pending.is_none()
             || !line.starts_with("OS credential:") && !line.starts_with("系统凭证：")
@@ -370,8 +408,9 @@ fn advanced(cfg: &mut Config) -> Result<bool> {
                 cfg,
                 "candidate_limit",
                 &format!(
-                    "{} [1..64; {}]: ",
+                    "{} [1..{}; {}]: ",
                     ui::tr("Candidate limit", "候选数量"),
+                    j_jump::config::CANDIDATE_LIMIT_MAX,
                     cfg.candidate_limit
                 ),
             )?,

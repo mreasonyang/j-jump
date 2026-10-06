@@ -138,10 +138,16 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<&'static str> {
                     "Clef-Flash blocked: Cloudflare Account ID missing or invalid.",
                     "Clef-Flash 暂不可用：Cloudflare Account ID 缺失或无效。",
                 ));
-                lines.push("jjump setup");
+                if let Some(notice) = account_override_notice(cfg) {
+                    lines.push(notice);
+                } else {
+                    lines.push("jjump setup");
+                }
             }
         }
-        if j_jump::credential::environment_name(cfg.provider).is_none() {
+        if let Some(notice) = invalid_credential_notice(cfg) {
+            lines.push(notice);
+        } else if j_jump::credential::environment_name(cfg.provider).is_none() {
             if cfg.credential_source() == "system" {
                 lines.push(tr(
                     "OS credential: configured, not checked.",
@@ -364,9 +370,68 @@ pub fn shell_help(name: &str, interactive: bool) -> Result<()> {
 pub fn credential_available(cfg: &j_jump::config::Config) -> bool {
     (j_jump::credential::environment_name(cfg.provider).is_some()
         || cfg.credential_source() == "system")
+        && invalid_credential_notice(cfg).is_none()
         && j_jump::provider::account_id(cfg).is_ok()
 }
+pub fn account_override_notice(cfg: &Config) -> Option<&'static str> {
+    (cfg.provider == j_jump::config::Provider::ClefFlash
+        && std::env::var_os("CLOUDFLARE_ACCOUNT_ID").is_some_and(|v| !v.is_empty())
+        && j_jump::provider::account_id(cfg).is_err())
+    .then(|| tr(
+        "CLOUDFLARE_ACCOUNT_ID is invalid and overrides the saved Account ID. Correct it or unset it to use the saved account.",
+        "CLOUDFLARE_ACCOUNT_ID 无效，但仍覆盖已保存的 Account ID。请更正它，或清除它以使用已保存的账号。"
+    ))
+}
+pub fn invalid_credential_notice(cfg: &Config) -> Option<&'static str> {
+    let name = j_jump::credential::environment_name(cfg.provider)?;
+    if j_jump::credential::get_for(cfg.provider, "environment").is_ok() {
+        return None;
+    }
+    Some(match name {
+        "CLOUDFLARE_AUTH_TOKEN" => tr(
+            "CLOUDFLARE_AUTH_TOKEN is invalid. Use a UTF-8 token of 1..4096 bytes without control characters, or unset it to use the saved token.",
+            "CLOUDFLARE_AUTH_TOKEN 无效。请使用 1..4096 字节且不含控制字符的 UTF-8 Token，或清除它以使用已保存的 Token。",
+        ),
+        "CLOUDFLARE_API_TOKEN" => tr(
+            "CLOUDFLARE_API_TOKEN is invalid. Use a UTF-8 token of 1..4096 bytes without control characters, or unset it to use the saved token.",
+            "CLOUDFLARE_API_TOKEN 无效。请使用 1..4096 字节且不含控制字符的 UTF-8 Token，或清除它以使用已保存的 Token。",
+        ),
+        _ => tr(
+            "TYPESAFE_API_KEY is invalid. Use a UTF-8 key of 1..4096 bytes without control characters, or unset it to use the saved key.",
+            "TYPESAFE_API_KEY 无效。请使用 1..4096 字节且不含控制字符的 UTF-8 Key，或清除它以使用已保存的 Key。",
+        ),
+    })
+}
+pub fn consent_prompt(cfg: &Config, count: usize) -> String {
+    let fields = match cfg.privacy.as_str() {
+        "strict" => tr("directory names", "目录名"),
+        "balanced" => tr(
+            "directory and parent names, usage, current directory name",
+            "目录名、父目录名、使用频度和当前目录名",
+        ),
+        _ => tr(
+            "directory full paths, usage, current full path",
+            "目录的完整路径、使用频度和当前完整路径",
+        ),
+    };
+    format!(
+        "{} {} {} {} ({})?\n{}: {}. [y/N] ",
+        tr("Send query and", "发送查询和"),
+        count,
+        tr("directory options to", "个目录选项给"),
+        cfg.provider.label(),
+        cfg.privacy,
+        tr("Fields", "发送字段"),
+        fields
+    )
+}
 pub fn missing_key_notice(cfg: &j_jump::config::Config) -> &'static str {
+    if let Some(notice) = account_override_notice(cfg) {
+        return notice;
+    }
+    if let Some(notice) = invalid_credential_notice(cfg) {
+        return notice;
+    }
     if cfg.provider == j_jump::config::Provider::ClefFlash {
         return tr(
             "Clef-Flash skipped: configure a Cloudflare Account ID and API token in jjump setup, or CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AUTH_TOKEN.",
@@ -380,22 +445,62 @@ pub fn missing_key_notice(cfg: &j_jump::config::Config) -> &'static str {
 }
 pub fn error_text(e: &Error) -> String {
     if tr("en", "zh") == "en" {
+        if e.1.contains("authentication rejected") {
+            return format!(
+                "{e}\nCheck the selected provider's key/token and permissions. Environment keys override saved keys; edit jjump setup or your environment."
+            );
+        }
         return e.to_string();
     }
-    let detail = if e.1.starts_with("privacy expects") {
-        "privacy 允许 strict、balanced、full。"
-    } else if e.1.starts_with("consent expects") {
-        "consent 允许 ask、always。"
-    } else if e.1.starts_with("candidate_limit expects") {
-        "candidate_limit 必须为 1..254 的整数。"
-    } else if e.1.starts_with("language expects") {
-        "language 允许 auto、en、zh。"
-    } else if e.1.starts_with("unknown setting") {
-        "未知设置；请运行 jjump config set --help。"
-    } else if e.1.contains("concurrently") {
-        "配置已被其他进程修改，请重新打开 setup。"
+    let provider = if e.1.contains("Clef-Flash") {
+        "Clef-Flash"
     } else {
-        e.1.as_ref()
+        "Jev"
+    };
+    let detail: std::borrow::Cow<'_, str> = if e.1.contains("authentication rejected") {
+        format!("{provider} 拒绝了凭据；请检查 Key/Token 和权限。环境凭据优先于已保存的凭据；可在 jjump setup 或环境变量中更正。\n本地浏览：jjump --offline query --interactive").into()
+    } else if e.0 == 5 && e.1.contains("rate limit or quota") {
+        format!("{provider} 请求受到限流或配额限制；请稍后重试或检查服务商配额。\n本地浏览：jjump --offline query --interactive").into()
+    } else if e.0 == 5 && (e.1.contains("timed out") || e.1.contains("deadline")) {
+        format!(
+            "{provider} 请求超时；请检查网络后重试。\n本地浏览：jjump --offline query --interactive"
+        )
+        .into()
+    } else if e.0 == 5
+        && (e.1.contains("connection failed")
+            || e.1.contains("transport failed")
+            || e.1.contains("response body failed"))
+    {
+        format!("{provider} 请求连接失败；请检查网络后重试。\n本地浏览：jjump --offline query --interactive").into()
+    } else if e.0 == 5
+        && (e.1.contains("invalid JSON")
+            || e.1.contains("schema mismatch")
+            || e.1.contains("Cloudflare response"))
+    {
+        format!("{provider} 响应格式无效；未选择目录。可稍后重试，或本地浏览：jjump --offline query --interactive").into()
+    } else if e.1.starts_with("provider expects") {
+        "provider：请选择 jev 或 clef-flash。".into()
+    } else if e.1.starts_with("choose off, jev") {
+        "请选择 off（仅本地）、jev 或 clef-flash。".into()
+    } else if e.1.starts_with("cloudflare_account_id expects") {
+        "Cloudflare Account ID 必须是 32 位十六进制字符；请填写 Account ID，而非 Token 或邮箱。"
+            .into()
+    } else if e.1.starts_with("credential must") || e.1.starts_with("key must") {
+        "Key/Token 必须为 UTF-8，最多 4096 字节，且不能包含换行、制表符等控制字符。".into()
+    } else if e.1.starts_with("privacy expects") {
+        "privacy 允许 strict、balanced、full。".into()
+    } else if e.1.starts_with("consent expects") {
+        "consent 允许 ask、always。".into()
+    } else if e.1.starts_with("candidate_limit expects") {
+        "candidate_limit 必须为 1..254 的整数。".into()
+    } else if e.1.starts_with("language expects") {
+        "language 允许 auto、en、zh。".into()
+    } else if e.1.starts_with("unknown setting") {
+        "未知设置；请运行 jjump config set --help。".into()
+    } else if e.1.contains("concurrently") || e.1.starts_with("configuration changed") {
+        "配置已被其他进程修改，请重新打开 setup。".into()
+    } else {
+        e.1.as_ref().into()
     };
     let explanation = match e.0 {
         2 => "输入无效；请按提示更正，配置未保存。",

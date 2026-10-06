@@ -160,7 +160,9 @@ class CurrentContract(unittest.TestCase):
                         if req['model'] == 'clef-flash':
                             body = {'result': body, 'success': True, 'errors': [], 'messages': []}
                         body = json.dumps(body)
-                        reply = {'version': 5, 'id': frame['id'], 'status': 'auth' if outcome == 'error' else 'ok',
+                        status = {'error': 'auth', 'rate_limit': 'rate_limit', 'timeout': 'timeout',
+                                  'transport': 'transport'}.get(outcome, 'ok')
+                        reply = {'version': 5, 'id': frame['id'], 'status': status,
                                  'body': 'not-json' if outcome == 'invalid' else body}
                         if outcome == 'binding': reply['id'] = 'bad-binding'
                         data = json.dumps(reply).encode(); conn.sendall(struct.pack('>I', len(data)) + data)
