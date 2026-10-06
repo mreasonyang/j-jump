@@ -3,6 +3,7 @@ import fcntl
 import itertools
 import json
 import os
+import re
 import select
 import shlex
 import socket
@@ -49,6 +50,11 @@ class Tev1Setup(unittest.TestCase):
                 self.profile(shell+language+command); self.env['J_JUMP_LANG']=language
                 self.env.pop('J_JUMP_OFFLINE', None)
                 self.cli('record', '--', self.target, cwd=self.target)
+                if command == 'ji':
+                    # Prompt hooks can put the current directory ahead of the
+                    # intended target. Exercise selection with that ordering.
+                    for _ in range(3):
+                        self.cli('record', '--', self.cwd, cwd=self.cwd)
                 with self.shell(shell) as t:
                     fcntl.ioctl(t.fd, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 60, 0, 0))
                     t.send(('j -- ' + shlex.quote(str(self.target)) if command == 'j' else 'ji') + '\r')
@@ -59,7 +65,10 @@ class Tev1Setup(unittest.TestCase):
                     if command == 'ji':
                         picker=self.label('Empty/q: cancel', '空输入/q 取消')
                         if picker not in output: t.until(picker)
-                        t.send('1\r')
+                        chosen = re.search(rb'(\d+)\. ~/' + re.escape(self.target.name.encode()), t.output)
+                        self.assertIsNotNone(chosen, t.output)
+                        self.assertNotEqual(chosen.group(1), b'1', t.output)
+                        t.send(chosen.group(1).decode() + '\r')
                     t.drain(.2)
                     t.cmd('printf "WHERE:%s\\n" "$PWD"', 'DONE')
                     self.assertIn(('WHERE:'+str(self.target)).encode(),t.output)
