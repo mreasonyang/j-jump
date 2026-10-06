@@ -1,6 +1,8 @@
 # Release and Homebrew
 
-The current VERSION is 0.0.34, published as [J-Jump 0.0.34](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.34). Four native Actions builds and their exact installed-package tests passed in [run 37341841880](https://github.com/mreasonyang/j-jump/actions/runs/37341841880), using immutable tag v0.0.34 at source 380ee6994b04e9c5554fd80bfe7fad6ad6a47225. All four public archives, checksum sidecars and the release manifest match the verified Actions bundle byte-for-byte after anonymous downloads. The bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
+The current source VERSION is 0.0.35. It repairs automatic shell setup when another startup file or a comment mentions an initialization command. This source version has not been published; the download installer and public Homebrew channel still deliver 0.0.34.
+
+The latest published release is [J-Jump 0.0.34](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.34). Four native Actions builds and their exact installed-package tests passed in [run 37341841880](https://github.com/mreasonyang/j-jump/actions/runs/37341841880), using immutable tag v0.0.34 at source 380ee6994b04e9c5554fd80bfe7fad6ad6a47225. All four public archives, checksum sidecars and the release manifest match the verified Actions bundle byte-for-byte after anonymous downloads. The bundle passes source identity, checksums, archive safety, license inventory and payload disclosure checks.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
 | --- | --- |

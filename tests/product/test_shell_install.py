@@ -101,6 +101,60 @@ class ShellInstallation(unittest.TestCase):
         self.connect()
         self.assertIn(BEGIN, rc.read_text())
 
+    def test_unrelated_commands_and_comments_do_not_count_as_manual_init(self):
+        cases = [
+            ("bash", self.home / ".bashrc", 'eval "$(printf :)" # jjump init bash\n'),
+            ("zsh", self.home / ".zshrc", 'eval "$(printf :)" # jjump init zsh\n'),
+            ("fish", self.home / ".config/fish/config.fish", 'echo "jjump init fish | source"\n'),
+        ]
+        self.cli("config", "set", "semantic", "off")
+        for shell, rc, original in cases:
+            with self.subTest(shell=shell):
+                rc.parent.mkdir(parents=True, exist_ok=True)
+                rc.write_text(original)
+                self.connect(shell)
+                self.assertIn(BEGIN, rc.read_text())
+                flags = ["--noprofile", "-i", "-c"] if shell == "bash" else ["-i", "-c"]
+                result = subprocess.run(
+                    [shutil.which(shell), *flags, 'j --offline -- "$JJ_TARGET"; pwd'],
+                    env=self.env, cwd=self.home, capture_output=True, text=True, timeout=15)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertEqual(str(self.target), result.stdout.strip().splitlines()[-1])
+                self.remove(shell)
+                self.assertEqual(original, rc.read_text())
+
+    def test_bash_login_sources_the_user_rc_after_an_unrelated_bashrc(self):
+        shared = self.home / "global.bashrc"
+        shared.write_text("export JJ_GLOBAL_SETTING=kept\n")
+        profile = self.home / ".bash_profile"
+        original = f'source "{shared}"\n'
+        profile.write_text(original)
+        self.connect("bash")
+        self.cli("config", "set", "semantic", "off")
+        result = subprocess.run(
+            ["bash", "--login", "-i", "-c",
+             'j --offline -- "$JJ_TARGET"; printf "%s\\n" "$PWD" "$JJ_GLOBAL_SETTING"'],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=15)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual([str(self.target), "kept"], result.stdout.strip().splitlines())
+        self.remove("bash")
+        self.assertEqual(original, profile.read_text())
+
+    def test_bash_login_does_not_source_an_already_initialized_rc_twice(self):
+        rc = self.home / ".bashrc"
+        rc.write_text('export JJ_RC_COUNT=$(( ${JJ_RC_COUNT:-0} + 1 ))\n')
+        profile = self.home / ".bash_profile"
+        original = '. "$HOME/.bashrc"\n'
+        profile.write_text(original)
+        self.connect("bash")
+        result = subprocess.run(
+            ["bash", "--login", "-i", "-c", 'type j >/dev/null; printf "%s\\n" "$JJ_RC_COUNT"'],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=15)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("1", result.stdout.strip())
+        self.remove("bash")
+        self.assertEqual(original, profile.read_text())
+
     def test_managed_prefix_can_change_but_new_conflicts_are_preserved(self):
         rc = self.home / ".zshrc"
         self.connect()
@@ -129,7 +183,8 @@ class ShellInstallation(unittest.TestCase):
         profile.write_text('# login configuration\n. "$HOME/.bashrc"\n')
         self.connect("bash")
         self.assertFalse((self.home / ".bash_profile").exists())
-        self.assertEqual('# login configuration\n. "$HOME/.bashrc"\n', profile.read_text())
+        self.assertTrue(profile.read_text().startswith('# login configuration\n. "$HOME/.bashrc"\n'))
+        self.assertIn(BEGIN, profile.read_text())
         self.remove("bash")
         self.assertEqual('# login configuration\n. "$HOME/.bashrc"\n', profile.read_text())
 
@@ -173,6 +228,23 @@ class ShellInstallation(unittest.TestCase):
         self.assertEqual([], self.backups())
         self.remove()
         self.assertEqual(text, rc.read_text())
+
+    def test_actual_manual_init_with_custom_names_and_comments_is_preserved(self):
+        cases = [
+            ("bash", self.home / ".bashrc", 'eval "$(command jjump init bash --cmd jump)" # keep\n'),
+            ("zsh", self.home / ".zshrc", 'eval "$(j-jump init zsh --cmd \'jump\')" # keep\n'),
+            ("fish", self.home / ".config/fish/config.fish", 'jjump init fish --cmd jump | source # keep\n'),
+        ]
+        for shell, rc, original in cases:
+            with self.subTest(shell=shell):
+                rc.parent.mkdir(parents=True, exist_ok=True)
+                rc.write_text(original)
+                backups = self.backups(rc.parent)
+                self.connect(shell)
+                self.assertEqual(original, rc.read_text())
+                self.assertEqual(backups, self.backups(rc.parent))
+                self.remove(shell)
+                self.assertEqual(original, rc.read_text())
 
     def test_known_alias_function_and_path_conflicts_have_actionable_remedy(self):
         rc = self.home / ".zshrc"

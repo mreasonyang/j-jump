@@ -177,15 +177,55 @@ fn active_lines(text: &str) -> impl Iterator<Item = &str> {
 }
 fn manual_init(text: &str, shell: &str) -> bool {
     active_lines(text).any(|line| {
-        let activation = if shell == "fish" {
-            line.contains("| source")
+        // Recognize actual, simple activation commands. Mentions in comments,
+        // messages or another command's substitution do not prove integration.
+        let (command, tail) = if shell == "fish" {
+            let Some((command, tail)) = line.split_once('|') else {
+                return false;
+            };
+            let Some(tail) = tail.trim_start().strip_prefix("source") else {
+                return false;
+            };
+            (command, tail)
         } else {
-            line.starts_with("eval ")
-        };
-        activation
-            && ["jjump", "j-jump"]
+            let Some(tail) = line
+                .strip_prefix("eval")
+                .filter(|tail| tail.starts_with(char::is_whitespace))
+            else {
+                return false;
+            };
+            let tail = tail.trim_start();
+            let forms = [("\"$(", ")\""), ("$(", ")"), ("\"`", "`\""), ("`", "`")];
+            let Some((command, tail)) = forms
                 .iter()
-                .any(|binary| line.contains(&format!("{binary} init {shell}")))
+                .find_map(|(begin, end)| tail.strip_prefix(begin)?.split_once(end))
+            else {
+                return false;
+            };
+            (command, tail)
+        };
+        let tail = tail.trim();
+        if !tail.is_empty() && !tail.starts_with('#') {
+            return false;
+        }
+        let mut words = command.split_whitespace();
+        let mut binary = words.next();
+        if binary == Some("command") {
+            binary = words.next();
+        }
+        if !matches!(binary, Some("jjump" | "j-jump"))
+            || words.next() != Some("init")
+            || words.next() != Some(shell)
+        {
+            return false;
+        }
+        match (words.next(), words.next(), words.next()) {
+            (None, None, None) => true,
+            (Some("--cmd"), Some(name), None) => {
+                shell::init(shell, name.trim_matches(['\'', '"'])).is_ok()
+            }
+            _ => false,
+        }
     })
 }
 fn declares_command(text: &str, name: &str) -> bool {
@@ -266,7 +306,7 @@ fn startup_body(shell: &str, name: &str, bin: &Path) -> Result<String> {
 fn login_body(home: &Path) -> Result<String> {
     let rc = shell_quote(text_path(&home.join(".bashrc"))?);
     Ok(format!(
-        "if [ -n \"${{BASH_VERSION-}}\" ] && [ -r {rc} ]; then\n    . {rc}\nfi\n"
+        "if [ -n \"${{BASH_VERSION-}}\" ] && [ -z \"${{__jj_installed-}}\" ] && [ -r {rc} ]; then\n    . {rc}\nfi\n"
     ))
 }
 
@@ -325,17 +365,6 @@ fn draft(
             &text[range.end..]
         )
     } else {
-        if login
-            && active_lines(text).any(|line| {
-                line.contains(".bashrc") && (line.contains("source ") || line.contains(". "))
-            })
-        {
-            println!(
-                "Existing shell integration preserved: {}",
-                display(&path.to_string_lossy())
-            );
-            return Ok(None);
-        }
         format!("{text}{}", managed_block(body))
     };
     if after.as_bytes() == original {

@@ -49,6 +49,10 @@ updates only the selected file. Dotfile symlinks are retained while the real fil
 appear beside the edited file as `FILE.j-jump-backup-*`, with access limited to the current user. Edited managed blocks
 are preserved and reported for manual inspection. `jjump init` itself still only prints code and never edits files.
 
+From source version 0.0.35, mentioning `jjump init` in an unrelated command or comment no longer suppresses automatic
+connection. Bash login setup connects the user's `.bashrc` even when the profile loads another file with a similar
+name, and skips loading it again when J-Jump has already initialized in that shell.
+
 If shell integration fails, the binary remains installed and the installer returns an error with a remedy. Fix the
 reported shell, command prefix or startup-file issue and run `jjump shell install` again. Shell integration needs no
 network, product profile or credentials and does not enable Jev.
