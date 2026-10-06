@@ -54,6 +54,15 @@ def isolated_environment(root: Path):
     return env
 
 
+def profile_environment(env, home: Path):
+    # Installing an older version into a newer version's profile would test an
+    # unsupported downgrade. The real upgrade starts with its own old profile.
+    home.mkdir()
+    return dict(env, HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
+                XDG_CACHE_HOME=str(home / ".cache"), XDG_DATA_HOME=str(home / ".local/share"),
+                J_JUMP_HOME=str(home / "state"))
+
+
 def run(command, env, cwd, capture=False):
     result = subprocess.run([str(item) for item in command], env=env, cwd=cwd,
                             text=True, stdout=subprocess.PIPE if capture else None,
@@ -100,23 +109,24 @@ def verify_install(version, asset, source, prefix, env, root):
         raise AssertionError("installed package source identity mismatch")
 
 
-def shell_navigation(binary, shell, target, env, home):
+def shell_navigation(shell, target, env, home, version):
     executable = shutil.which(shell, path=env["PATH"])
     if not executable:
         raise ValueError(f"missing required test shell: {shell}")
     shell_env = dict(env, SHELL=executable, JJ_TARGET=str(target))
-    command = 'j --offline -- "$JJ_TARGET"; printf "%s\\n" "$PWD" "$JJ_USER_SETTING"'
-    flags = ["--noprofile", "-i", "-c"] if shell == "bash" else ["-i", "-c"]
-    output = run([executable, *flags, command], shell_env, home, capture=True)
-    if output.strip().splitlines() != [str(target), "kept"]:
-        raise AssertionError(f"{shell} startup or offline navigation failed")
+    command = 'j --offline alpha; printf "%s\\n" "$PWD" "$JJ_USER_SETTING"; command jjump --version'
+    modes = [["--noprofile", "-i", "-c"], ["--login", "-i", "-c"]] if shell == "bash" else [["-i", "-c"]]
+    for flags in modes:
+        output = run([executable, *flags, command], shell_env, home, capture=True)
+        if output.strip().splitlines() != [str(target), "kept", f"jjump {version}"]:
+            raise AssertionError(f"{shell} startup, installed version or offline history navigation failed")
 
 
 def shell_profiles(home):
     return {"bash": home / ".bashrc", "zsh": home / ".zshrc", "fish": home / ".config/fish/config.fish"}
 
 
-def install_shells(binary, target, env, home):
+def install_shells(binary, target, env, home, version):
     originals = {}
     for shell, rc in shell_profiles(home).items():
         rc.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +138,7 @@ def install_shells(binary, target, env, home):
         run([binary, "shell", "install", "--shell", shell], env, home)
         if rc.read_bytes() != installed or rc.stat().st_mtime_ns != timestamp:
             raise AssertionError("repeated shell installation is not idempotent")
-        shell_navigation(binary, shell, target, env, home)
+        shell_navigation(shell, target, env, home, version)
     return originals
 
 
@@ -169,19 +179,21 @@ def lifecycle(args, root):
     current_manifest, current_asset = public_manifest(args.version, target, args.source_sha, env, root)
     old_manifest, old_asset = public_manifest(args.upgrade_from, target, None, env, root)
     binary = prefix / "bin/jjump"
-    target_dir = home / "alpha space"
-    target_dir.mkdir()
     checks = []
     for phase, version, tap_sha, manifest, asset in (
         ("current", args.version, args.tap_sha, current_manifest, current_asset),
         ("upgrade", args.upgrade_from, args.old_tap_sha, old_manifest, old_asset),
     ):
+        home = root / f"{phase}-home"
+        env = profile_environment(env, home)
+        target_dir = home / "alpha space"
+        target_dir.mkdir()
         run(["git", "checkout", "--detach", tap_sha], env, tap)
         run([brew, "install", FORMULA], env, root)
         verify_install(version, asset, manifest["source_sha"], prefix, env, root)
         run([binary, "config", "set", "semantic", "off"], env, home)
         run([binary, "record", "--", target_dir], env, target_dir)
-        originals = install_shells(binary, target_dir, env, home)
+        originals = install_shells(binary, target_dir, env, home, version)
         preserved = list((home / "state").rglob("*")) + list(originals) + [home / ".bash_profile"]
         before = snapshot(preserved)
         if phase == "current":
@@ -194,10 +206,16 @@ def lifecycle(args, root):
             run([brew, "upgrade", FORMULA], env, root)
             checks.append(f"upgrade-{args.upgrade_from}-to-{args.version}")
         require_preserved(before, preserved)
+        if phase == "upgrade":
+            run([brew, "cleanup", FORMULA], env, root)
+            if (prefix / "Cellar/j-jump" / args.upgrade_from).exists():
+                raise AssertionError("upgrade cleanup left the old keg")
+            require_preserved(before, preserved)
+            checks.append("upgrade-cleanup-removes-old-keg")
         verify_install(args.version, current_asset, args.source_sha, prefix, env, root)
         run([brew, "test", FORMULA], env, root)
         for shell in shell_profiles(home):
-            shell_navigation(binary, shell, target_dir, env, home)
+            shell_navigation(shell, target_dir, env, home, args.version)
         uninstall_shells(binary, originals, env, home)
         before_uninstall = snapshot(preserved)
         run([brew, "uninstall", FORMULA], env, root)

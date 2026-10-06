@@ -118,7 +118,8 @@ Change `--target` to the host's native archive target. The test creates an indep
 prefix, synthetic home and cache, then removes them on exit. It installs the real public Formula,
 checks the installed binary against the public release manifest, tests repeat installation and
 reinstallation, and upgrades the public 0.0.35 Formula to 0.0.38. It checks `brew test`, Bash/Zsh/Fish
-startup and offline navigation, exact shell integration undo, and configuration/visit preservation
+startup and offline history navigation (including Bash login shells), removal of the old upgraded keg,
+exact shell integration undo, and configuration/visit preservation
 through upgrade, reinstall and uninstall. Inherited provider credentials and shell hooks are excluded.
 On Linux the prefix is outside `/tmp` and `/var/tmp` so Homebrew's sandbox can protect its repository.
 

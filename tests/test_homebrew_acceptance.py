@@ -38,6 +38,15 @@ class HomebrewAcceptanceSafety(unittest.TestCase):
                 acceptance.lifecycle(args, Path(tempfile.gettempdir()))
             run.assert_not_called()
 
+    def test_upgrade_and_current_install_use_independent_profiles(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = acceptance.profile_environment(acceptance.isolated_environment(root), root / "current-home")
+            upgrade = acceptance.profile_environment(current, root / "upgrade-home")
+            for key in ("HOME", "J_JUMP_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"):
+                self.assertNotEqual(current[key], upgrade[key])
+                self.assertTrue(Path(upgrade[key]).is_relative_to(root / "upgrade-home"))
+
     def test_preservation_checks_detect_deletions_and_mutations(self):
         with tempfile.TemporaryDirectory() as temporary:
             file = Path(temporary) / "config.toml"
