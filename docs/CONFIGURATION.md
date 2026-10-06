@@ -115,7 +115,7 @@ values locally; it doesn't test API permissions.
 
 ### Tev1 4B on your computer
 
-Requires J-Jump 0.0.40 or later (`jjump --version`); until a release includes it, [build from source](../CONTRIBUTING.md#build-and-test).
+Requires J-Jump 0.0.40 or later (`jjump --version`); the current [release](RELEASE.md) includes support.
 Tev1 runs locally through [Ollama](https://ollama.com/download) 0.35 or later. J-Jump never installs or starts Ollama
 and never downloads models.
 

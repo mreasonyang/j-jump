@@ -1,23 +1,25 @@
 # Release and Homebrew
 
-The current source and latest published release is [J-Jump 0.0.38](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.38). It adds optional Cloudflare Workers AI Clef-Flash alongside official Jev, repairs provider-switch credential drafts and invalid environment readiness, and improves English/Chinese setup, consent and error guidance. Three native targets passed in [run 37461168018](https://github.com/mreasonyang/j-jump/actions/runs/37461168018), and the Intel macOS target passed its isolated repair build in [run 37467122364](https://github.com/mreasonyang/j-jump/actions/runs/37467122364). Each passes source and exact installed-package tests using immutable tag v0.0.38 at source 2fd2ce746f6b67093270c16bed4d1ddf2370fed2. All four public archives, checksum sidecars and the release manifest match the accepted Actions bundle after anonymous downloads. The bundle passes source identity, checksums, archive safety, neutral ownership, license inventory and payload disclosure checks.
+The current source version and latest published release is [J-Jump 0.0.41](https://github.com/mreasonyang/j-jump/releases/tag/v0.0.41). It adds optional local Ollama Tev1 4B alongside Jev and Cloudflare Clef-Flash, with preparation guidance, editable service/model settings, explicit installed-model discovery and connection checks, retry/configure-later paths, and English/Chinese recovery guidance.
+
+All four native targets pass source and exact installed-package tests using immutable tag v0.0.41 at source b6f0932993bea0c76bae6818a8da7ace6ed5ec6c. The macOS ARM64/x86-64 and Linux ARM64 jobs pass in [run 37500544279](https://github.com/mreasonyang/j-jump/actions/runs/37500544279); Linux x86-64 passes its [isolated native repeat 37503301737](https://github.com/mreasonyang/j-jump/actions/runs/37503301737). The initial Linux x86-64 installed suite missed one Fish rapid-prompt visit; its unchanged strict two-per-directory assertion passes in the repeat. The complete source-bound bundle is verified locally from those accepted artifacts. Rapid prompt observation remains best effort: the existing hook waits at most four 5ms sleeps for a live earlier supervisor and leaves the current directory eligible for a later prompt when that guard is still busy. The four public archives, four checksum sidecars and release manifest match the accepted source-bound bundle after draft roundtrip and anonymous downloads. Source identity, checksums, archive safety, neutral ownership, license inventory and payload disclosure checks pass.
 
 | Target | Native build, installed product and TLS downloader lifecycle |
 | --- | --- |
-| aarch64-apple-darwin | Passed on macos-15 |
-| x86_64-apple-darwin | Passed on macos-15-intel |
-| aarch64-unknown-linux-musl | Passed on ubuntu-24.04-arm |
-| x86_64-unknown-linux-musl | Passed on ubuntu-24.04 |
+| macOS ARM64 | PASS |
+| macOS x86-64 | PASS |
+| Linux x86-64 musl | PASS |
+| Linux ARM64 musl | PASS |
 
-Each native job tests automatic Bash/Zsh/Fish startup configuration, backups, exact undo, command conflicts and repeated installation in synthetic homes, both from source and from the exact installed archive. The real-curl TLS downloader suite tests the exact archive's installation, repeat, replacement and removal lifecycle. Temporary acceptance installations outside those shell fixtures pass `--no-shell` and leave runner startup files untouched. Ubuntu jobs suppress the distribution's global `compinit` initialization so its terminal prompt does not contaminate isolated fixture stderr.
+Each native job tests automatic Bash/Zsh/Fish startup configuration, backups, exact undo, command conflicts and repeated installation in synthetic homes, both from source and from the exact installed archive. The real-curl TLS downloader suite exercises that exact archive's installation, repeat, replacement and removal. Temporary acceptance installations use isolated prefixes and leave runner startup files untouched.
 
-The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/main/j-jump.rb) matches the unmodified Formula generated from the accepted four-target 0.0.38 bundle. After Homebrew installation, run `jjump shell install`; the complete command below does both. Formula generation, Ruby syntax, public downloads and the exact tap commit are verified. The [native Homebrew acceptance run](https://github.com/mreasonyang/j-jump/actions/runs/37474571928) passes on all four targets using Homebrew 7.0.8, the real public Formula and the exact public assets in independent, non-default prefixes. Installed binary hashes match the accepted source-bound bundle.
+The [public Homebrew Formula](https://github.com/mreasonyang/homebrew-taps/blob/dc8e1a7e8fb60a9324b2b2fbbb62edd97fb0321c/j-jump.rb) matches the Formula generated from the accepted four-target 0.0.41 bundle. Native Homebrew acceptance uses Homebrew 7.0.8, real public assets and independent prefixes. macOS ARM64/x86-64 and Linux ARM64 pass in [run 37508931264](https://github.com/mreasonyang/j-jump/actions/runs/37508931264); Linux x86-64 passes its [isolated repeat 37509458807](https://github.com/mreasonyang/j-jump/actions/runs/37509458807) at the same Formula and release identities. The first Linux x86-64 `brew install` call stopped with Homebrew `Broken pipe`; the original failure is preserved and no asset or Formula change is used for the repeat. It covers installation, repeat, Formula test, reinstall, actual public 0.0.35-to-0.0.41 upgrade, old-keg cleanup, Bash/Zsh/Fish startup/navigation/undo, and configuration/visit preservation. Installed binary hashes match the accepted source-bound bundle. After Homebrew installation, run `jjump shell install` and open a new terminal.
 
-Each Homebrew job passes install, repeat install, `brew test`, reinstall, a genuine public 0.0.35-to-0.0.38 upgrade, old-keg cleanup and uninstall. Bash (interactive and login), Zsh and Fish startup, offline history navigation, active binary version after upgrade, idempotent shell installation and exact integration undo pass. Reinstall, upgrade, cleanup and uninstall preserve synthetic configuration, visits and unrelated startup content. Current installation and upgrade baselines use independent profiles. Provider credentials are excluded and semantic navigation is disabled.
+The anonymous public root downloader passes latest/pinned 0.0.41 installation at the default prefix, unchanged repeat, explicit replacement, Bash/Zsh/Fish startup/navigation, exact shell undo and data-preserving uninstall on native macOS ARM64. An actual public 0.0.38-to-0.0.41 upgrade preserves configuration, visits and unrelated startup content. The downloaded binary hashes match the public archive.
 
-The public root downloader passes latest 0.0.38 installation at the default prefix, unchanged repeat, explicit replacement, Bash/Zsh/Fish startup and navigation, managed shell removal and configuration-preserving binary uninstall on native Linux x86-64. A real public 0.0.35-to-0.0.38 upgrade preserves configuration, visits and unrelated startup content. Installed binary hashes match the accepted public archive.
+Hosted Tev1 tests use synthetic loopback services and do not install Ollama or download model weights. Separate local macOS ARM64 real-model validation on 0.0.40 covers Ollama 0.35.1 with Tev1 4B Q8_0, English/Chinese setup and model editing in Bash/Zsh/Fish, representative selection/cancellation, and upgrades from 0.0.38/0.0.39. Provider/runtime source is unchanged between 0.0.40 and 0.0.41; 0.0.41 corrects a product acceptance fixture and patch metadata. These functional examples do not establish general semantic accuracy or live-model acceptance on other platforms. J-Jump provides manual preparation instructions; Ollama and model installation remain user-managed.
 
-Earlier [0.0.35 acceptance](https://github.com/mreasonyang/j-jump/actions/runs/37405268855) includes a native macOS ARM64 public Homebrew lifecycle in an independent, non-default prefix, a public downloader lifecycle and an actual 0.0.34-to-0.0.35 upgrade. Those results apply to 0.0.35. Earlier [0.0.34 acceptance](https://github.com/mreasonyang/j-jump/actions/runs/37341841880) covered four native archive jobs and verified public downloads. Current 0.0.38 results use the exact newly published assets.
+Earlier [0.0.38 build results](https://github.com/mreasonyang/j-jump/actions/runs/37461168018), [Intel repair build](https://github.com/mreasonyang/j-jump/actions/runs/37467122364) and [Homebrew acceptance](https://github.com/mreasonyang/j-jump/actions/runs/37474571928) apply to 0.0.38. Current results above apply to the newly published 0.0.41 assets.
 
 ## Download installer
 
@@ -35,7 +37,7 @@ and sha256sum or shasum, plus standard POSIX tools. It requires no Rust, Python 
 
 Unknown systems and CPUs, including Windows and 32-bit CPUs, are refused. macOS below15 is refused. Detection fixtures cover target selection; the native Actions runs above additionally exercise each target's real archive through the TLS downloader and installed lifecycle.
 
-The default repository is `mreasonyang/j-jump`, with public 0.0.38 assets. Retrieve the maintained installer from `main/install.sh`; without `--version`, it automatically chooses the latest stable release through GitHub's latest redirect. No version number is needed in the default command. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
+The default repository is `mreasonyang/j-jump`, with public 0.0.41 assets. Retrieve the maintained installer from `main/install.sh`; without `--version`, it automatically chooses the latest stable release through GitHub's latest redirect. No version number is needed in the default command. `--repository OWNER/REPO` selects another public asset destination; this flag does not create or publish anything.
 
 ```sh
 # Install the latest stable release into "$HOME/.local".
@@ -45,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 For a custom prefix or release version, pass options to `sh -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --prefix "$HOME/.local" --version 0.0.38
+curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh | sh -s -- --prefix "$HOME/.local" --version 0.0.41
 ```
 
 If you want to inspect the script before running it, download it first, review it and then run it with the desired options:
@@ -54,8 +56,8 @@ If you want to inspect the script before running it, download it first, review i
 curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh -o j-jump-install.sh
 # Review j-jump-install.sh before running it.
 sh ./j-jump-install.sh --prefix "$HOME/.local"
-# Optional: choose a specific release; v0.0.38 is also accepted
-sh ./j-jump-install.sh --version 0.0.38 --prefix "$HOME/.local"
+# Optional: choose a specific release; v0.0.41 is also accepted
+sh ./j-jump-install.sh --version 0.0.41 --prefix "$HOME/.local"
 # Explicitly replace an unchanged, receipt-owned installation
 sh ./j-jump-install.sh --prefix "$HOME/.local" --replace
 sh ./j-jump-install.sh --help
@@ -70,7 +72,7 @@ Removal uses `install.sh --uninstall` inside an extracted archive, as described 
 Downloads use HTTPS-only redirects with TLS verification, a 10-second connection timeout, a 120-second request timeout,
 at most 5 redirects, a 1KiB sidecar limit and a 128MiB archive limit. A private temporary directory is removed on completion,
 failure or interruption. SHA256 verifies integrity against the sidecar from the same release; it is not a signature and
-does not independently authenticate a publisher. Anonymous downloads of all four 0.0.38 targets pass verification against the accepted bundle.
+does not independently authenticate a publisher. Anonymous downloads of all four 0.0.41 targets pass verification against the accepted bundle.
 
 Offline downloader tests run with `python3 -m unittest discover -s tests -p test_download_installer.py -v`. They include
 a local TLS server with real curl and refusal of an HTTP downgrade. The native lifecycle is opt-in via
@@ -110,16 +112,16 @@ a C compiler and make (for Homebrew's Formula test dependencies):
 ```sh
 results=$(mktemp -d)
 python3 scripts/test-homebrew-release.py \
-  --version 0.0.38 --source-sha 2fd2ce746f6b67093270c16bed4d1ddf2370fed2 \
+  --version 0.0.41 --source-sha b6f0932993bea0c76bae6818a8da7ace6ed5ec6c \
   --target x86_64-unknown-linux-musl \
-  --tap-sha 80e8db4be3c24752b361c5bc699c92167c916448 \
+  --tap-sha dc8e1a7e8fb60a9324b2b2fbbb62edd97fb0321c \
   --report "$results/homebrew.json"
 ```
 
 Change `--target` to the host's native archive target. The test creates an independent Homebrew 7.0.8
 prefix, synthetic home and cache, then removes them on exit. It installs the real public Formula,
 checks the installed binary against the public release manifest, tests repeat installation and
-reinstallation, and upgrades the public 0.0.35 Formula to 0.0.38. It checks `brew test`, Bash/Zsh/Fish
+reinstallation, and upgrades the public 0.0.35 Formula to 0.0.41. It checks `brew test`, Bash/Zsh/Fish
 startup and offline history navigation (including Bash login shells), removal of the old upgraded keg,
 exact shell integration undo, and configuration/visit preservation
 through upgrade, reinstall and uninstall. Inherited provider credentials and shell hooks are excluded.
@@ -134,7 +136,7 @@ Release tools need Python3.9+ and the Rust/C build environment; end users do not
 ```sh
 python3 scripts/release.py check-source
 # For a previously authorized, existing version tag:
-python3 scripts/release.py check-source --tag v0.0.38
+python3 scripts/release.py check-source --tag v0.0.41
 
 # Run on the native target; this does not dispatch or publish anything:
 ./scripts/ci-release.sh aarch64-apple-darwin
@@ -184,7 +186,7 @@ The existing public tap is `mreasonyang/homebrew-taps`, with root flomo.rb. Plac
 
 ## Publication
 
-The public source and release repository is `mreasonyang/j-jump`; the Homebrew channel is `mreasonyang/taps/j-jump`. Release 0.0.38 contains four native archives, their four SHA256 sidecars and a source-bound release manifest. Publication used the guarded release and tap helpers with the accepted Actions bundle and existing local gh/git authorization. Three original native build jobs and the isolated Intel repair build passed. The complete source-bound bundle and Formula were verified locally from their accepted archives. Hosted bundle/publisher/tap jobs were skipped; guarded local helpers performed publication and tap update.
+The public source and release repository is `mreasonyang/j-jump`; the Homebrew channel is `mreasonyang/taps/j-jump`. Release 0.0.41 contains four native archives, their four SHA256 sidecars and a source-bound release manifest. Three original native build jobs and the isolated Linux x86-64 repeat pass at immutable source b6f0932993bea0c76bae6818a8da7ace6ed5ec6c. The complete bundle and Formula are verified locally from their accepted source-bound archives. The guarded local release and tap helpers publish only that accepted bundle using existing local gh/git authorization, then verify draft roundtrip, anonymous downloads and exact tap SHA readback. The manual build inputs keep hosted publication disabled; native public Homebrew acceptance is a separate read-only workflow run.
 
 For future authorized hosted publication, the release destination comes from `J_JUMP_RELEASE_REPOSITORY`; otherwise it is the source repository. Publication refuses private destinations. Same-repository publication uses the job's contents-write GITHUB_TOKEN; a different release repository and the tap need a scoped `J_JUMP_DISTRIBUTION_TOKEN` stored through GitHub's secret UI. Do not put token values in chat or tracked files.
 
@@ -198,10 +200,10 @@ brew upgrade mreasonyang/taps/j-jump
 brew uninstall mreasonyang/taps/j-jump
 ```
 
-The current native archive, four-target public Homebrew and Linux public-downloader lifecycle results provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
+The current native archive, four-target public Homebrew and macOS ARM64 public-downloader lifecycle results provide the separately described evidence above. The tap update verifies public assets and reads back the exact remote commit.
 
 ## Platform and distribution limits
 
-The four 0.0.38 archive targets have native Actions acceptance and verified public downloads. The current Homebrew 7.0.8 lifecycle also passes natively on all four targets in independent, non-default prefixes. These checks exercise the current Formula and public assets; existing-user Homebrew installations and provider credential prompts remain separate environment-dependent behavior. macOS packages are unsigned;
+The four 0.0.41 archive targets have native Actions acceptance and verified public downloads. The current Homebrew 7.0.8 lifecycle also passes natively on all four targets in independent, non-default prefixes. These checks exercise the current Formula and public assets; existing-user Homebrew installations and provider credential prompts remain separate environment-dependent behavior. macOS packages are unsigned;
 checksums bind their identities and do not establish notarization. Linux Secret Service prompts, terminal behavior,
 live-provider effectiveness and genuine-user utility require their own acceptance.
