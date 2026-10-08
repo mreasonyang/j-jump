@@ -150,13 +150,30 @@ class CurrentContract(unittest.TestCase):
                             self.assertEqual(frame['key'], self.env['CLOUDFLARE_AUTH_TOKEN'])
                         if outcome == 'deadline':
                             stop.wait(12); continue
-                        req = json.loads(frame['payload']); ids = list(req['questions']['destination']['criteria'])
+                        req = json.loads(frame['payload'])
+                        openai = req['model'] == 'gpt-6-luna'
+                        if openai:
+                            self.assertEqual(frame['account_id'], '')
+                            self.assertEqual(frame['key'], self.env['OPENAI_API_KEY'])
+                            self.assertEqual(req['questions'][0]['name'], 'destination')
+                            ids = [c['value'] for c in req['questions'][0]['choices']]
+                        else:
+                            ids = list(req['questions']['destination']['criteria'])
                         choice = 'none' if outcome == 'none' else next(k for k in ids if k != 'none')
                         answer = {'type': 'choice', 'choice': choice, 'confidence': 1.0,
                                   'probabilities': {k: float(k == choice) for k in ids}}
-                        answers = {k: {'type': 'noul', 'noul': 1.0} for k in req['questions'] if k != 'destination'}
+                        answers = {} if openai else {k: {'type': 'noul', 'noul': 1.0} for k in req['questions'] if k != 'destination'}
                         answers['destination'] = answer
                         body = {'model': req['model'], 'answers': answers}
+                        if openai:
+                            answer['name'] = 'destination'
+                            answer['probabilities'] = [{'value': k, 'probability': p}
+                                                       for k, p in answer['probabilities'].items()]
+                            body['answers'] = ([{'type': 'refusal', 'name': 'destination'}]
+                                               if outcome == 'refusal' else [answer])
+                            body['usage'] = {'input_tokens': 1, 'input_tokens_details': {'cached_tokens': 0, 'cache_write_tokens': 0},
+                                             'output_tokens': 0, 'output_tokens_details': {'reasoning_tokens': 0},
+                                             'total_tokens': 1}
                         if req['model'] == 'clef-flash':
                             body = {'result': body, 'success': True, 'errors': [], 'messages': []}
                         body = json.dumps(body)

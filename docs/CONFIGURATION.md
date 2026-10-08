@@ -13,7 +13,7 @@ For installation and a quick tour, start with the [README](../README.md). 中文
 | Key | Values | Default |
 | --- | --- | --- |
 | `semantic` | `on`, `off` | `off` |
-| `provider` | `jev`, `clef-flash`, `tev1` | `jev` |
+| `provider` | `jev`, `clef-flash`, `tev1`, `openai` | `jev` |
 | `consent` | `ask` (confirm every request), `always` | `ask` |
 | `privacy` | `strict`, `balanced`, `full` (see [below](#what-a-provider-can-see)) | `strict` |
 | `tracking` | `on`, `off` (pause recording visits) | `on` |
@@ -29,6 +29,7 @@ API keys never go in the config file; enter them in `jjump setup` or use environ
 
 | Environment variable | Effect |
 | --- | --- |
+| `OPENAI_API_KEY` | OpenAI key; overrides the stored OpenAI key |
 | `TYPESAFE_API_KEY` | Jev key; overrides the stored Jev key |
 | `CLOUDFLARE_AUTH_TOKEN` | Workers AI token; overrides the stored Cloudflare token |
 | `CLOUDFLARE_API_TOKEN` | Used when `CLOUDFLARE_AUTH_TOKEN` is unset or empty |
@@ -112,6 +113,26 @@ jjump config set semantic on
 
 An invalid `CLOUDFLARE_ACCOUNT_ID` blocks requests until you fix or unset it. `jjump doctor` checks the format of these
 values locally; it doesn't test API permissions.
+
+### OpenAI Decisions
+
+Requires J-Jump 0.0.42 or later. Uses the official [Decisions API](https://developers.openai.com/api/docs/guides/decisions)
+at `https://api.openai.com/v1/decisions` with `gpt-6-luna`. Choose `openai` in `jjump setup` and enter your OpenAI API key,
+or configure it directly:
+
+```sh
+jjump config set provider openai
+export OPENAI_API_KEY="your-openai-api-key"  # or store it: jjump credential set
+jjump config set semantic on
+```
+
+`jjump preview "my cv"` shows the exact `input`, named choice question and candidate IDs without sending them.
+The API's `none` choice, refusal, tied probabilities or weak evidence produce no suggestion. A valid suggestion still
+requires your explicit selection. Setup and doctor check configuration locally; they do not test account access.
+
+The OpenAI key uses the separate OS entry `j-jump.openai` / `openai-api-key`. Its source is saved under
+`providers.openai.credential` (`environment` or `system`); the config stores no key. Switching providers retains saved
+credential sources and clears unsaved key drafts.
 
 ### Tev1 4B on your computer
 

@@ -41,6 +41,7 @@ static DESCRIPTION: Descriptor = Descriptor {
         env: &["CLOUDFLARE_AUTH_TOKEN", "CLOUDFLARE_API_TOKEN"],
         service: "j-jump.cloudflare",
         account: "workers-ai-api-token",
+        setting: None,
         source: |c| &c.cloudflare_credential,
         set_source: |c, s| c.cloudflare_credential = s.into(),
     }),

@@ -28,7 +28,7 @@ letters of its name and, with an optional semantic model, finds it by what it me
 - **By name, instantly.** `j pay` jumps to the best match among folders you've actually visited. Ranking happens on
   your machine and uses no network.
 - **By meaning, with a model you choose.** Can't remember the name? `ji my cv` asks a semantic model which folder you
-  mean: Jev or Cloudflare Clef-Flash in the cloud, or Tev1 running entirely on your own computer.
+  mean: Jev, Cloudflare Clef-Flash or OpenAI in the cloud, or Tev1 running entirely on your own computer.
 - **In any language.** `ji 税务` finds `taxes`; `ji machine learning experiments` finds `机器学习实验`.
 - **You stay in control.** Semantic help is off until you turn it on. It only suggests: nothing moves until you pick.
   By default the model sees only your query and folder names.
@@ -81,6 +81,7 @@ Semantic help is **off by default**. Choose one provider in `jjump setup`, which
 | --- | --- | --- |
 | [Jev](https://docs.typesafe.ai/introduction) by TypeSafe AI (default) | Cloud | An API key from the [TypeSafe console](https://console.typesafe.ai/keys) |
 | [Clef-Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) on Cloudflare Workers AI | Cloud | A Cloudflare Account ID and Workers AI API token |
+| [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions) (`gpt-6-luna`) | Cloud | An OpenAI API key and J-Jump 0.0.42+ |
 | Tev1 4B via [Ollama](https://ollama.com/download) | Your computer | Ollama 0.35+, a ~4.5 GB model and J-Jump 0.0.40+ |
 
 - `j` only asks the provider when nothing matches locally. `ji QUERY` asks it whenever semantic help is on.

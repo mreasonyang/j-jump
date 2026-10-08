@@ -23,7 +23,7 @@
 ## 为什么选择 J-Jump
 
 - **按名称，即刻到达。** `j pay` 会在你真正去过的目录中找到最佳匹配并直接跳转。排序完全在本机完成，不联网。
-- **按含义，模型由你选。** 想不起目录叫什么？`ji my cv` 会请语义模型判断你要找的是哪个目录：可以用云端的 Jev 或 Cloudflare Clef-Flash，也可以用完全运行在你电脑上的 Tev1。
+- **按含义，模型由你选。** 想不起目录叫什么？`ji my cv` 会请语义模型判断你要找的是哪个目录：可以用云端的 Jev、Cloudflare Clef-Flash 或 OpenAI，也可以用完全运行在你电脑上的 Tev1。
 - **任何语言都能用。** `ji 税务` 能找到 `taxes`，`ji machine learning experiments` 能找到 `机器学习实验`。
 - **决定权始终在你。** 语义功能默认关闭，开启后也只提建议，你不选就不会跳转。默认情况下，模型只能看到你的查询词和目录名。
 - **小巧、原生。** 单个 Rust 可执行文件，支持 macOS 和 Linux 上的 Bash、Zsh、Fish。无需额外运行时、插件管理器，本地导航也不需要后台服务。
@@ -71,6 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 | --- | --- | --- |
 | TypeSafe AI 的 [Jev](https://docs.typesafe.ai/introduction)（默认） | 云端 | 在 [TypeSafe 控制台](https://console.typesafe.ai/keys)创建的 API Key |
 | Cloudflare Workers AI 上的 [Clef-Flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) | 云端 | Cloudflare Account ID 和 Workers AI API Token |
+| [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions)（`gpt-6-luna`） | 云端 | OpenAI API Key，以及 J-Jump 0.0.42+ |
 | 通过 [Ollama](https://ollama.com/download) 运行的 Tev1 4B | 你的电脑 | Ollama 0.35+、约 4.5 GB 的模型，以及 J-Jump 0.0.40+ |
 
 - `j` 只有在本地完全没有匹配时才会询问语义服务；开启语义功能后，`ji 查询词` 每次都会询问。

@@ -17,6 +17,7 @@ static DESCRIPTION: Descriptor = Descriptor {
         env: &["TYPESAFE_API_KEY"],
         service: "j-jump.jev",
         account: "typesafe-api-key",
+        setting: None,
         source: |c| &c.credential,
         set_source: |c, s| c.credential = s.into(),
     }),

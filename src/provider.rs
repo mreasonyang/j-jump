@@ -242,7 +242,8 @@ pub fn validate(bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
     let requested_model = req["model"]
         .as_str()
         .ok_or(Error(5, "invalid request model".into()))?;
-    v = crate::providers::for_model(requested_model)?.decode(v)?;
+    let driver = crate::providers::for_model(requested_model)?;
+    v = driver.decode(v)?;
     if !v.as_object().is_some_and(|m| {
         m.keys()
             .all(|k| ["model", "answers", "usage"].contains(&k.as_str()))
@@ -257,7 +258,8 @@ pub fn validate(bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
     {
         return Err(Error(5, "provider usage schema mismatch".into()));
     }
-    let questions = req["questions"]
+    let questions = driver.questions(&req)?;
+    let questions = questions
         .as_object()
         .ok_or(Error(5, "request questions missing".into()))?;
     let answers = v["answers"]
@@ -267,14 +269,19 @@ pub fn validate(bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
         return Err(Error(5, "provider question IDs mismatch".into()));
     }
     let answer = &v["answers"]["destination"];
+    if keys(answer, &["type"]) && answer["type"] == "refusal" {
+        return Ok(None);
+    }
     if !keys(answer, &["type", "choice", "probabilities", "confidence"])
         || answer["type"] != "choice"
     {
         return Err(Error(5, "provider choice schema mismatch".into()));
     }
     probability(&answer["confidence"])?;
-    let options = req["questions"]["destination"]["criteria"]
-        .as_object()
+    let options = questions
+        .get("destination")
+        .and_then(|q| q.get("criteria"))
+        .and_then(Value::as_object)
         .ok_or(Error(5, "criteria missing".into()))?;
     let probs = answer["probabilities"]
         .as_object()

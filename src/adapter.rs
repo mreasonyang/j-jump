@@ -1403,80 +1403,93 @@ mod tests {
         );
     }
     #[test]
-    fn cloudflare_request_crosses_ipc_with_its_account_and_token() {
-        let (_temp, paths, _) = fixture();
-        let account = "00000000000000000000000000000001";
-        let mut cfg = paths.load().unwrap();
-        cfg.provider = crate::config::Provider::ClefFlash;
-        cfg.cloudflare_account_id = account.into();
-        paths.save(&cfg, &paths.fingerprint().unwrap()).unwrap();
-        let fingerprint = paths.fingerprint().unwrap();
-        let payload = serde_json::to_vec(&serde_json::json!({
-            "model":"clef-flash", "state":{"query":"backend"},
-            "questions":{"destination":{"type":"choice","instructions":"Choose", "criteria":{"d1":"server", "none":"No match"}}}
-        })).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!(
-            "http://{}/client/v4/accounts/{account}/ai/run/@cf/cloudflare/clef-flash",
-            listener.local_addr().unwrap()
-        );
-        let server = std::thread::spawn(move || {
-            let (mut http, _) = listener.accept().unwrap();
-            let request = read_http_request(&mut http);
-            let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
-            let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
-            assert!(headers.starts_with(&format!(
-                "post /client/v4/accounts/{account}/ai/run/@cf/cloudflare/clef-flash "
-            )));
-            assert!(headers.contains("authorization: bearer synthetic-cloudflare-token"));
-            let body: serde_json::Value = serde_json::from_slice(&request[end + 4..]).unwrap();
-            assert_eq!(body["model"], "clef-flash");
-            let response = serde_json::json!({"success":true,"errors":[],"messages":[],"result":{
-                "model":"clef-flash","answers":{"destination":{"type":"choice","choice":"d1","probabilities":{"d1":0.9,"none":0.1},"confidence":0.9}},"usage":{"input_tokens":1,"output_tokens":0}
-            }}).to_string();
-            write!(
-                http,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response.len(),
-                response
+    fn cloud_provider_requests_cross_ipc_with_their_wire_format_and_key() {
+        for provider in [
+            crate::config::Provider::ClefFlash,
+            crate::config::Provider::OpenAI,
+        ] {
+            let (_temp, paths, _) = fixture();
+            let mut cfg = paths.load().unwrap();
+            cfg.provider = provider;
+            cfg.cloudflare_account_id = "00000000000000000000000000000001".into();
+            paths.save(&cfg, &paths.fingerprint().unwrap()).unwrap();
+            let fingerprint = paths.fingerprint().unwrap();
+            let connection = provider.driver().connection(&cfg, None).unwrap();
+            let account = connection.context;
+            let route = reqwest::Url::parse(&connection.url)
+                .unwrap()
+                .path()
+                .to_owned();
+            let model = provider.driver().model();
+            let task = serde_json::json!({"state":{"query":"backend"},
+                "questions":{"destination":{"type":"choice","instructions":"Choose", "criteria":{"d1":"server", "none":"No match"}}}});
+            let payload = provider.driver().prepare(task, model).unwrap();
+            let expected_payload = payload.clone();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}{}", listener.local_addr().unwrap(), route);
+            let server = std::thread::spawn(move || {
+                let (mut http, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut http);
+                let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+                let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                assert!(headers.starts_with(&format!("post {route} ")));
+                assert!(headers.contains("authorization: bearer synthetic-provider-key"));
+                assert!(headers.contains("content-type: application/json"));
+                assert_eq!(&request[end + 4..], &expected_payload);
+                let response = if provider == crate::config::Provider::OpenAI {
+                    serde_json::json!({"model":model,"answers":[{"name":"destination","type":"choice","choice":"d1",
+                        "probabilities":[{"value":"d1","probability":0.9},{"value":"none","probability":0.1}],"confidence":0.9}],
+                        "usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens":0,
+                            "output_tokens_details":{"reasoning_tokens":0},"total_tokens":1}})
+                } else {
+                    serde_json::json!({"success":true,"errors":[],"messages":[],"result":{
+                        "model":model,"answers":{"destination":{"type":"choice","choice":"d1","probabilities":{"d1":0.9,"none":0.1},"confidence":0.9}},
+                        "usage":{"input_tokens":1,"output_tokens":0}}})
+                }.to_string();
+                write!(
+                    http,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response.len(),
+                    response
+                )
+                .unwrap();
+            });
+            let (caller, helper) = UnixStream::pair().unwrap();
+            let task = std::thread::spawn(move || {
+                process(
+                    helper,
+                    paths,
+                    reqwest::blocking::Client::builder()
+                        .no_proxy()
+                        .build()
+                        .unwrap(),
+                    Arc::new(AtomicBool::new(false)),
+                    Arc::new(AtomicBool::new(false)),
+                    Arc::new(AtomicUsize::new(0)),
+                    &url,
+                )
+            });
+            let mut key = "synthetic-provider-key".into();
+            let body = exchange_for(
+                caller,
+                "00000000000000000000000000000001",
+                &fingerprint,
+                "absent",
+                &account,
+                &mut key,
+                &payload,
+                Instant::now() + Duration::from_secs(3),
+                &Abort::new(),
             )
             .unwrap();
-        });
-        let (caller, helper) = UnixStream::pair().unwrap();
-        let task = std::thread::spawn(move || {
-            process(
-                helper,
-                paths,
-                reqwest::blocking::Client::builder()
-                    .no_proxy()
-                    .build()
-                    .unwrap(),
-                Arc::new(AtomicBool::new(false)),
-                Arc::new(AtomicBool::new(false)),
-                Arc::new(AtomicUsize::new(0)),
-                &url,
-            )
-        });
-        let mut key = "synthetic-cloudflare-token".into();
-        let body = exchange_for(
-            caller,
-            "00000000000000000000000000000001",
-            &fingerprint,
-            "absent",
-            account,
-            &mut key,
-            &payload,
-            Instant::now() + Duration::from_secs(3),
-            &Abort::new(),
-        )
-        .unwrap();
-        assert!(key.is_empty());
-        assert_eq!(
-            crate::provider::validate(&body, &payload).unwrap(),
-            Some("d1".into())
-        );
-        task.join().unwrap();
-        server.join().unwrap();
+            assert!(key.is_empty());
+            assert_eq!(
+                crate::provider::validate(&body, &payload).unwrap(),
+                Some("d1".into())
+            );
+            task.join().unwrap();
+            server.join().unwrap();
+        }
     }
 
     fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {

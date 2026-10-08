@@ -1,6 +1,6 @@
 [package]
 name = "j-jump"
-version = "0.0.41"
+version = "0.0.42"
 edition = "2024"
 rust-version = "1.88"
 description = "Independent directory navigation with optional cloud or local model suggestions"

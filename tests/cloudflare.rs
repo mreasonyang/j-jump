@@ -256,10 +256,23 @@ fn os_credential_entries_are_independent_in_an_isolated_backend() {
     keyring::set_default_credential_builder(Box::<Backend>::default());
     credential::set_for(Provider::Jev, "synthetic-jev").unwrap();
     credential::set_for(Provider::ClefFlash, "synthetic-cloudflare").unwrap();
+    credential::set_for(Provider::OpenAI, "synthetic-openai").unwrap();
     assert_eq!(
         &**credential::system_for(Provider::Jev).unwrap().unwrap(),
         "synthetic-jev"
     );
+    assert_eq!(
+        &**credential::system_for(Provider::ClefFlash)
+            .unwrap()
+            .unwrap(),
+        "synthetic-cloudflare"
+    );
+    assert_eq!(
+        &**credential::system_for(Provider::OpenAI).unwrap().unwrap(),
+        "synthetic-openai"
+    );
+    credential::delete_for(Provider::OpenAI).unwrap();
+    assert!(credential::system_for(Provider::OpenAI).unwrap().is_none());
     assert_eq!(
         &**credential::system_for(Provider::ClefFlash)
             .unwrap()

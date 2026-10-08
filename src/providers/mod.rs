@@ -2,6 +2,7 @@
 //! only this registry knows which implementations are shipped.
 mod clef;
 mod jev;
+mod openai;
 mod tev1;
 
 use crate::{Error, Result, config::Config};
@@ -17,6 +18,8 @@ pub struct CredentialSpec {
     pub env: &'static [&'static str],
     pub service: &'static str,
     pub account: &'static str,
+    /// Credential-source key in this provider's settings namespace, if used.
+    pub setting: Option<&'static str>,
     pub source: fn(&Config) -> &str,
     pub set_source: fn(&mut Config, &str),
 }
@@ -91,6 +94,10 @@ pub trait ProviderDriver: Sync {
     fn decode(&self, value: Value) -> Result<Value> {
         Ok(value)
     }
+    /// Recover the named questions from the exact wire request for validation.
+    fn questions(&self, request: &Value) -> Result<Value> {
+        Ok(request["questions"].clone())
+    }
     fn config_notice(&self, _cfg: &Config, _chinese: bool) -> Option<String> {
         None
     }
@@ -131,6 +138,7 @@ pub static DRIVERS: &[&dyn ProviderDriver] = &[
     &jev::JEV,
     &clef::CLEF,
     &tev1::TEV1,
+    &openai::OPENAI,
     #[cfg(test)]
     &tests::TINY,
 ];
@@ -161,6 +169,16 @@ pub fn validate_settings(cfg: &Config) -> Result<()> {
     for (id, settings) in &cfg.providers {
         let d = find(id).ok_or(Error(7, "unknown provider settings".into()))?;
         for (key, value) in settings {
+            if d.descriptor()
+                .credential
+                .as_ref()
+                .is_some_and(|c| c.setting == Some(key.as_str()))
+            {
+                if !["environment", "system"].contains(&value.as_str()) {
+                    return Err(Error(7, "invalid provider credential source".into()));
+                }
+                continue;
+            }
             let field = d
                 .descriptor()
                 .fields
@@ -215,6 +233,7 @@ impl crate::config::Provider {
     pub const Jev: Self = Self::builtin("jev");
     pub const ClefFlash: Self = Self::builtin("clef-flash");
     pub const Tev1: Self = Self::builtin("tev1");
+    pub const OpenAI: Self = Self::builtin("openai");
 }
 
 #[cfg(test)]
