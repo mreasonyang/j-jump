@@ -1,0 +1,54 @@
+{
+  "request": {
+    "op": "object",
+    "fields": {
+      "model": {
+        "op": "ref",
+        "path": "/model"
+      },
+      "state": {
+        "op": "ref",
+        "path": "/task/state"
+      },
+      "questions": {
+        "op": "ref",
+        "path": "/task/questions"
+      }
+    }
+  },
+  "response": {
+    "op": "ref",
+    "path": "/response/result"
+  },
+  "questions": {
+    "op": "ref",
+    "path": "/request/questions"
+  },
+  "response_shape": {
+    "kind": "object",
+    "properties": {
+      "result": {
+        "kind": "object",
+        "extra": true
+      },
+      "success": {
+        "kind": "boolean",
+        "choices": [
+          true
+        ]
+      },
+      "errors": {
+        "kind": "array",
+        "max": 0
+      },
+      "messages": {
+        "kind": "array"
+      }
+    },
+    "required": [
+      "result",
+      "success",
+      "errors"
+    ]
+  }
+}

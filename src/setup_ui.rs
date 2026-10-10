@@ -114,7 +114,7 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
                 "consent",
                 format!(
                     "{} [ask/always; {}]: ",
-                    if cfg.provider.needs_credentials() {
+                    if !cfg.is_local() {
                         ui::tr("Network permission", "联网许可")
                     } else {
                         ui::tr("Request permission", "请求许可")
@@ -123,7 +123,7 @@ fn semantic(cfg: &mut Config, start: usize) -> Result<bool> {
                 ),
             ),
             _ => {
-                if !cfg.provider.needs_credentials() {
+                if cfg.is_local() {
                     eprintln!(
                         "{}",
                         ui::tr(
@@ -166,17 +166,12 @@ fn binding(cfg: &Config) -> String {
     serde_json::to_string(cfg).expect("serializable configuration")
 }
 fn guidance(cfg: &Config) {
-    if let Some(help) = cfg
-        .provider
-        .driver()
-        .setup_help(cfg, ui::tr("en", "zh") == "zh")
-    {
+    if let Some(help) = cfg.driver().setup_help(cfg, ui::tr("en", "zh") == "zh") {
         eprintln!("{help}");
     }
 }
 fn diagnostic_error(cfg: &Config, error: &Error) {
     if let Some(help) = cfg
-        .provider
         .driver()
         .recovery(cfg, error, ui::tr("en", "zh") == "zh")
     {
@@ -343,7 +338,7 @@ fn key(
     checked: &mut Option<String>,
 ) -> Result<bool> {
     guidance(cfg);
-    let fields = cfg.provider.driver().descriptor().fields;
+    let fields = cfg.driver().descriptor().fields;
     let mut step = 0usize;
     loop {
         if let Some(f) = fields.get(step) {
@@ -371,9 +366,9 @@ fn key(
             } else {
                 step -= 1;
             }
-        } else if !cfg.provider.needs_credentials() {
+        } else if !cfg.needs_credentials() {
             *pending = None;
-            if check(cfg, offline, checked)? {
+            if !cfg.is_local() || check(cfg, offline, checked)? {
                 return Ok(true);
             }
             if step == 0 {
@@ -385,7 +380,7 @@ fn key(
         }
     }
     loop {
-        let env_name = j_jump::credential::environment_name(cfg.provider);
+        let env_name = j_jump::credential::environment_name_for_config(cfg);
         let env = env_name.is_some();
         eprintln!(
             "{}",
@@ -691,8 +686,8 @@ fn reset(cfg: &mut Config) {
 fn summary(cfg: &Config) {
     eprintln!("{}", ui::tr("Draft (not saved):", "草稿（尚未保存）："));
     eprintln!("provider={}", cfg.provider.id());
-    if !cfg.provider.needs_credentials() {
-        for f in cfg.provider.driver().descriptor().fields {
+    if !cfg.needs_credentials() {
+        for f in cfg.driver().descriptor().fields {
             eprintln!(
                 "{}: {}",
                 f.label.get(ui::tr("en", "zh") == "zh"),
@@ -897,7 +892,7 @@ fn configure(paths: &Paths, inline: bool, offline: bool) -> Result<()> {
             pending.as_deref().map(String::as_str),
         ) {
             Ok(()) => {
-                if !cfg.provider.needs_credentials() {
+                if !cfg.needs_credentials() {
                     readiness(&cfg, &pending, offline, &checked);
                 }
                 return Ok(());

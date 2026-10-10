@@ -105,7 +105,7 @@ impl ProviderDriver for Tev1 {
     fn model(&self) -> &'static str {
         "tev1:4b"
     }
-    fn selected_model<'a>(&self, cfg: &'a Config) -> &'a str {
+    fn selected_model<'a>(&'a self, cfg: &'a Config) -> &'a str {
         selected(cfg)
     }
     fn accepts_model(&self, model: &str) -> bool {
@@ -133,21 +133,17 @@ impl ProviderDriver for Tev1 {
             transport: Transport::Loopback,
         })
     }
-    fn prepare(&self, mut task: Value, model: &str) -> Result<Vec<u8>> {
+    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
         if !self.accepts_model(model) {
             return Err(Error(5, "unsupported request model".into()));
         }
-        task["model"] = model.into();
-        let criteria = task["questions"]["destination"]["criteria"]
-            .as_object_mut()
-            .ok_or(Error(5, "criteria missing".into()))?;
-        for value in criteria.values_mut() {
-            if !value.is_string() {
-                *value = Value::String(value.to_string());
-            }
-        }
-        task["keep_alive"] = "5m".into();
-        serde_json::to_vec(&task).map_err(|_| Error(5, "cannot encode local task".into()))
+        super::wire("tev1").prepare(task, model)
+    }
+    fn decode(&self, value: Value) -> Result<Value> {
+        super::wire("tev1").decode(value)
+    }
+    fn questions(&self, request: &Value) -> Result<Value> {
+        super::wire("tev1").questions(request)
     }
     fn setup_help(&self, cfg: &Config, chinese: bool) -> Option<String> {
         let url = base(cfg);
@@ -212,7 +208,7 @@ impl ProviderDriver for Tev1 {
         };
         if responses.is_empty() {
             return Ok(Diagnostic::Request {
-                path: "/api/version",
+                path: "/api/version".into(),
                 body: None,
             });
         }
@@ -232,7 +228,7 @@ impl ProviderDriver for Tev1 {
         }
         if responses.len() == 1 {
             return Ok(Diagnostic::Request {
-                path: "/api/tags",
+                path: "/api/tags".into(),
                 body: None,
             });
         }
@@ -274,7 +270,7 @@ impl ProviderDriver for Tev1 {
         }
         if responses.len() == 2 {
             return Ok(Diagnostic::Request {
-                path: "/v1/systemone",
+                path: "/v1/systemone".into(),
                 body: Some(probe()?),
             });
         }

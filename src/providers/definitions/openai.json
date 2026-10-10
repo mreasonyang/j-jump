@@ -1,0 +1,443 @@
+{
+  "request": {
+    "op": "object",
+    "fields": {
+      "model": {
+        "op": "ref",
+        "path": "/model"
+      },
+      "input": {
+        "op": "stringify",
+        "input": {
+          "op": "ref",
+          "path": "/task/state"
+        }
+      },
+      "questions": {
+        "op": "map",
+        "input": {
+          "op": "entries",
+          "input": {
+            "op": "ref",
+            "path": "/task/questions"
+          }
+        },
+        "body": {
+          "op": "object",
+          "fields": {
+            "name": {
+              "op": "ref",
+              "path": "/item/key"
+            },
+            "type": {
+              "op": "ref",
+              "path": "/item/value/type"
+            },
+            "instructions": {
+              "op": "ref",
+              "path": "/item/value/instructions"
+            },
+            "choices": {
+              "op": "map",
+              "input": {
+                "op": "entries",
+                "input": {
+                  "op": "ref",
+                  "path": "/item/value/criteria"
+                }
+              },
+              "body": {
+                "op": "object",
+                "fields": {
+                  "value": {
+                    "op": "ref",
+                    "path": "/item/key"
+                  },
+                  "description": {
+                    "op": "text",
+                    "input": {
+                      "op": "ref",
+                      "path": "/item/value"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "questions": {
+    "op": "index",
+    "input": {
+      "op": "ref",
+      "path": "/request/questions"
+    },
+    "key": {
+      "op": "ref",
+      "path": "/item/name"
+    },
+    "value": {
+      "op": "object",
+      "fields": {
+        "criteria": {
+          "op": "index",
+          "input": {
+            "op": "ref",
+            "path": "/item/choices"
+          },
+          "key": {
+            "op": "ref",
+            "path": "/item/value"
+          },
+          "value": {
+            "op": "ref",
+            "path": "/item/description"
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "op": "object",
+    "fields": {
+      "model": {
+        "op": "ref",
+        "path": "/response/model"
+      },
+      "answers": {
+        "op": "index",
+        "input": {
+          "op": "ref",
+          "path": "/response/answers"
+        },
+        "key": {
+          "op": "ref",
+          "path": "/item/name"
+        },
+        "value": {
+          "op": "if",
+          "condition": {
+            "op": "eq",
+            "left": {
+              "op": "ref",
+              "path": "/item/type"
+            },
+            "right": {
+              "op": "literal",
+              "value": "refusal"
+            }
+          },
+          "then": {
+            "op": "object",
+            "fields": {
+              "type": {
+                "op": "literal",
+                "value": "refusal"
+              }
+            }
+          },
+          "otherwise": {
+            "op": "object",
+            "fields": {
+              "type": {
+                "op": "ref",
+                "path": "/item/type"
+              },
+              "choice": {
+                "op": "ref",
+                "path": "/item/choice"
+              },
+              "confidence": {
+                "op": "ref",
+                "path": "/item/confidence"
+              },
+              "probabilities": {
+                "op": "index",
+                "input": {
+                  "op": "ref",
+                  "path": "/item/probabilities"
+                },
+                "key": {
+                  "op": "ref",
+                  "path": "/item/value"
+                },
+                "value": {
+                  "op": "ref",
+                  "path": "/item/probability"
+                }
+              }
+            }
+          }
+        }
+      },
+      "usage": {
+        "op": "object",
+        "fields": {
+          "input_tokens": {
+            "op": "ref",
+            "path": "/response/usage/input_tokens"
+          },
+          "output_tokens": {
+            "op": "ref",
+            "path": "/response/usage/output_tokens"
+          }
+        }
+      }
+    }
+  },
+  "request_shape": {
+    "kind": "object",
+    "properties": {
+      "model": {
+        "kind": "string"
+      },
+      "input": {
+        "kind": "string",
+        "min": 1
+      },
+      "questions": {
+        "kind": "array",
+        "min": 1,
+        "max": 1,
+        "items": {
+          "kind": "object",
+          "properties": {
+            "type": {
+              "kind": "string",
+              "choices": [
+                "choice"
+              ]
+            },
+            "name": {
+              "kind": "string",
+              "choices": [
+                "destination"
+              ]
+            },
+            "instructions": {
+              "kind": "string",
+              "min": 1
+            },
+            "choices": {
+              "kind": "array",
+              "min": 2,
+              "max": 255,
+              "items": {
+                "kind": "object",
+                "properties": {
+                  "value": {
+                    "kind": "string"
+                  },
+                  "description": {
+                    "kind": "string"
+                  }
+                },
+                "required": [
+                  "value",
+                  "description"
+                ]
+              }
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "instructions",
+            "choices"
+          ]
+        }
+      }
+    },
+    "required": [
+      "model",
+      "input",
+      "questions"
+    ]
+  },
+  "response_shape": {
+    "kind": "object",
+    "properties": {
+      "model": {
+        "kind": "string"
+      },
+      "answers": {
+        "kind": "array",
+        "items": {
+          "kind": "",
+          "any": [
+            {
+              "kind": "object",
+              "properties": {
+                "type": {
+                  "kind": "string",
+                  "choices": [
+                    "choice"
+                  ]
+                },
+                "name": {
+                  "kind": "string"
+                },
+                "choice": {
+                  "kind": "string"
+                },
+                "confidence": {
+                  "kind": "number"
+                },
+                "probabilities": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "object",
+                    "properties": {
+                      "value": {
+                        "kind": "string"
+                      },
+                      "probability": {
+                        "kind": "number"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "probability"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "name",
+                "choice",
+                "confidence",
+                "probabilities"
+              ]
+            },
+            {
+              "kind": "object",
+              "properties": {
+                "type": {
+                  "kind": "string",
+                  "choices": [
+                    "refusal"
+                  ]
+                },
+                "name": {
+                  "kind": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name"
+              ]
+            }
+          ]
+        }
+      },
+      "usage": {
+        "kind": "object",
+        "properties": {
+          "input_tokens": {
+            "kind": "uint"
+          },
+          "output_tokens": {
+            "kind": "uint"
+          },
+          "total_tokens": {
+            "kind": "uint"
+          },
+          "input_tokens_details": {
+            "kind": "object",
+            "properties": {
+              "cached_tokens": {
+                "kind": "uint"
+              },
+              "cache_write_tokens": {
+                "kind": "uint"
+              }
+            },
+            "required": [
+              "cached_tokens",
+              "cache_write_tokens"
+            ]
+          },
+          "output_tokens_details": {
+            "kind": "object",
+            "properties": {
+              "reasoning_tokens": {
+                "kind": "uint"
+              }
+            },
+            "required": [
+              "reasoning_tokens"
+            ]
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "total_tokens",
+          "input_tokens_details",
+          "output_tokens_details"
+        ]
+      }
+    },
+    "required": [
+      "model",
+      "answers",
+      "usage"
+    ]
+  },
+  "response_checks": [
+    {
+      "op": "eq",
+      "left": {
+        "op": "add",
+        "left": {
+          "op": "ref",
+          "path": "/response/usage/input_tokens"
+        },
+        "right": {
+          "op": "ref",
+          "path": "/response/usage/output_tokens"
+        }
+      },
+      "right": {
+        "op": "ref",
+        "path": "/response/usage/total_tokens"
+      }
+    },
+    {
+      "op": "le",
+      "left": {
+        "op": "ref",
+        "path": "/response/usage/input_tokens_details/cached_tokens"
+      },
+      "right": {
+        "op": "ref",
+        "path": "/response/usage/input_tokens"
+      }
+    },
+    {
+      "op": "le",
+      "left": {
+        "op": "ref",
+        "path": "/response/usage/input_tokens_details/cache_write_tokens"
+      },
+      "right": {
+        "op": "ref",
+        "path": "/response/usage/input_tokens"
+      }
+    },
+    {
+      "op": "le",
+      "left": {
+        "op": "ref",
+        "path": "/response/usage/output_tokens_details/reasoning_tokens"
+      },
+      "right": {
+        "op": "ref",
+        "path": "/response/usage/output_tokens"
+      }
+    }
+  ]
+}

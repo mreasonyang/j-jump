@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "id": "openrouter-jev",
+  "model": "typesafe/jev-1.13",
+  "url": "https://openrouter.ai/api/v1/systemone",
+  "transport": "https",
+  "auth": {
+    "type": "bearer",
+    "env": "OPENROUTER_API_KEY"
+  },
+  "wire": {
+    "request": {
+      "op": "object",
+      "fields": {
+        "model": {
+          "op": "ref",
+          "path": "/model"
+        },
+        "state": {
+          "op": "ref",
+          "path": "/task/state"
+        },
+        "questions": {
+          "op": "ref",
+          "path": "/task/questions"
+        }
+      }
+    },
+    "response": {
+      "op": "object",
+      "fields": {
+        "model": {
+          "op": "ref",
+          "path": "/response/model"
+        },
+        "answers": {
+          "op": "ref",
+          "path": "/response/answers"
+        },
+        "usage": {
+          "op": "object",
+          "fields": {
+            "input_tokens": {
+              "op": "ref",
+              "path": "/response/usage/input_tokens"
+            },
+            "output_tokens": {
+              "op": "ref",
+              "path": "/response/usage/output_tokens"
+            }
+          }
+        }
+      }
+    },
+    "questions": {
+      "op": "ref",
+      "path": "/request/questions"
+    },
+    "response_shape": {
+      "kind": "object",
+      "properties": {
+        "model": {
+          "kind": "string"
+        },
+        "answers": {
+          "kind": "object",
+          "extra": true
+        },
+        "usage": {
+          "kind": "object",
+          "properties": {
+            "input_tokens": {
+              "kind": "uint"
+            },
+            "output_tokens": {
+              "kind": "uint"
+            },
+            "cost": {
+              "kind": "number"
+            }
+          },
+          "required": [
+            "input_tokens",
+            "output_tokens"
+          ]
+        },
+        "id": {
+          "kind": "string"
+        },
+        "provider": {
+          "kind": "string"
+        }
+      },
+      "required": [
+        "model",
+        "answers",
+        "usage"
+      ]
+    }
+  },
+  "response_models": [
+    "typesafe/jev-1.13-20260917",
+    "typesafe/jev-1.13.0",
+    "jev-1.13.0"
+  ]
+}

@@ -80,6 +80,8 @@ pub struct Config {
     pub cloudflare_credential: String,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub providers: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_definition: Option<crate::providers::dsl::Definition>,
     pub tracking: bool,
     pub semantic: bool,
     pub consent: String,
@@ -100,6 +102,7 @@ impl Default for Config {
             cloudflare_account_id: String::new(),
             cloudflare_credential: environment_source(),
             providers: Default::default(),
+            api_definition: None,
             tracking: true,
             semantic: false,
             consent: "ask".into(),
@@ -209,11 +212,15 @@ impl Paths {
                 "configuration changed concurrently; restart setup".into(),
             ));
         }
-        atomic_write(
-            &self.config,
-            &serde_json::to_vec_pretty(config)
-                .map_err(|_| Error(7, "cannot encode configuration".into()))?,
-        )
+        let bytes = serde_json::to_vec_pretty(config)
+            .map_err(|_| Error(7, "cannot encode configuration".into()))?;
+        if bytes.len() > 65536 {
+            return Err(Error(
+                7,
+                "configuration exceeds 64 KiB; simplify the provider definition or settings".into(),
+            ));
+        }
+        atomic_write(&self.config, &bytes)
     }
     pub fn fingerprint(&self) -> Result<String> {
         if fs::symlink_metadata(&self.config)
@@ -368,7 +375,42 @@ impl Policy {
 }
 
 impl Config {
+    pub fn driver(&self) -> &dyn crate::providers::ProviderDriver {
+        if self.provider.id() == "dsl"
+            && let Some(d) = &self.api_definition
+        {
+            return d;
+        }
+        self.provider.driver()
+    }
+    pub fn is_local(&self) -> bool {
+        self.driver()
+            .connection(self, None)
+            .is_ok_and(|c| c.transport == crate::providers::Transport::Loopback)
+    }
+    pub fn needs_credentials(&self) -> bool {
+        if self.provider.id() == "dsl" {
+            return self
+                .api_definition
+                .as_ref()
+                .is_some_and(|d| d.env().is_some());
+        }
+        self.provider.needs_credentials()
+    }
+    pub fn provider_identity(&self) -> String {
+        if self.provider.id() == "dsl" {
+            return self
+                .api_definition
+                .as_ref()
+                .map(|d| d.identity())
+                .unwrap_or_default();
+        }
+        self.provider.id().into()
+    }
     pub fn credential_source(&self) -> &str {
+        if !self.needs_credentials() {
+            return "none";
+        }
         self.provider
             .driver()
             .descriptor()
@@ -383,6 +425,16 @@ impl Config {
         }
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(d) = &self.api_definition {
+            d.validate()?;
+        }
+        if self.provider.id() == "dsl" && self.api_definition.is_none() {
+            return Err(Error(
+                7,
+                "DSL provider requires an imported definition".into(),
+            ));
+        }
+
         crate::providers::validate_settings(self).map_err(|_| {
             Error(
                 7,

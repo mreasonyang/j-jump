@@ -143,12 +143,12 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
         tr("Semantic provider", "语义服务"),
         cfg.provider.label()
     ));
-    if cfg.provider.driver().connection(cfg, None).is_err() {
+    if cfg.driver().connection(cfg, None).is_err() {
         lines.push(missing_key_notice(cfg));
         lines.push("jjump setup".into());
     }
-    if !cfg.provider.needs_credentials() {
-        for f in cfg.provider.driver().descriptor().fields {
+    if !cfg.needs_credentials() {
+        for f in cfg.driver().descriptor().fields {
             lines.push(format!(
                 "{}: {}",
                 f.label.get(tr("en", "zh") == "zh"),
@@ -163,15 +163,22 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
             .into(),
         );
         lines.push(
-            tr(
-                "Local service and model: not checked. Run jjump provider-check explicitly.",
-                "本机服务与模型：尚未检查。请显式运行 jjump provider-check。",
-            )
+            if cfg.is_local() {
+                tr(
+                    "Local service and model: not checked. Run jjump provider-check explicitly.",
+                    "本机服务与模型：尚未检查。请显式运行 jjump provider-check。",
+                )
+            } else {
+                tr(
+                    "API connection: not tested here.",
+                    "API 连接：本次尚未实测。",
+                )
+            }
             .into(),
         );
     } else if let Some(notice) = invalid_credential_notice(cfg) {
         lines.push(notice);
-    } else if let Some(name) = j_jump::credential::environment_name(cfg.provider) {
+    } else if let Some(name) = j_jump::credential::environment_name_for_config(cfg) {
         lines.push(format!("{}: {name}.", tr("Credential source", "凭证来源")));
     } else if cfg.credential_source() == "system" {
         lines.push(
@@ -192,7 +199,7 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
         ));
         lines.push("jjump setup".into());
     }
-    if cfg.provider.needs_credentials() {
+    if cfg.needs_credentials() {
         lines.push(format!(
             "{} {}",
             cfg.provider.label(),
@@ -386,20 +393,18 @@ pub fn shell_help(name: &str, interactive: bool) -> Result<()> {
 }
 /// A semantic request is possible only with an environment key or a configured OS entry.
 pub fn credential_available(cfg: &Config) -> bool {
-    cfg.provider.driver().connection(cfg, None).is_ok()
-        && (!cfg.provider.needs_credentials()
-            || ((j_jump::credential::environment_name(cfg.provider).is_some()
+    cfg.driver().connection(cfg, None).is_ok()
+        && (!cfg.needs_credentials()
+            || ((j_jump::credential::environment_name_for_config(cfg).is_some()
                 || cfg.credential_source() == "system")
                 && invalid_credential_notice(cfg).is_none()))
 }
 pub fn account_override_notice(cfg: &Config) -> Option<String> {
-    cfg.provider
-        .driver()
-        .config_notice(cfg, tr("en", "zh") == "zh")
+    cfg.driver().config_notice(cfg, tr("en", "zh") == "zh")
 }
 pub fn invalid_credential_notice(cfg: &Config) -> Option<String> {
-    let name = j_jump::credential::environment_name(cfg.provider)?;
-    if j_jump::credential::get_for(cfg.provider, "environment").is_ok() {
+    let name = j_jump::credential::environment_name_for_config(cfg)?;
+    if j_jump::credential::get_for_config(cfg, "environment").is_ok() {
         return None;
     }
     Some(format!(
@@ -437,8 +442,7 @@ pub fn missing_key_notice(cfg: &Config) -> String {
     account_override_notice(cfg)
         .or_else(|| invalid_credential_notice(cfg))
         .unwrap_or_else(|| {
-            cfg.provider
-                .driver()
+            cfg.driver()
                 .descriptor()
                 .missing
                 .get(tr("en", "zh") == "zh")

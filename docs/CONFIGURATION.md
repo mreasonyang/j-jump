@@ -13,7 +13,7 @@ For installation and a quick tour, start with the [README](../README.md). 中文
 | Key | Values | Default |
 | --- | --- | --- |
 | `semantic` | `on`, `off` | `off` |
-| `provider` | `jev`, `clef-flash`, `tev1`, `openai` | `jev` |
+| `provider` | `jev`, `clef-flash`, `tev1`, `openai`, `dsl` | `jev` |
 | `consent` | `ask` (confirm every request), `always` | `ask` |
 | `privacy` | `strict`, `balanced`, `full` (see [below](#what-a-provider-can-see)) | `strict` |
 | `tracking` | `on`, `off` (pause recording visits) | `on` |
@@ -240,3 +240,124 @@ J-Jump is pre-1.0 and reads only its current file formats. Older or unknown file
 
 Exit codes: `2` invalid input, `3` no match, `4` selection required, `5` provider, `6` path, `7` state,
 `130` cancelled.
+
+## Declarative APIs (0.0.43+)
+
+A versioned JSON definition can configure an API without adding a Rust provider. The four built-in providers use the
+same JSON wire interpreter; their existing names, settings and credential entries remain available. An imported
+definition occupies the `dsl` slot. Import another definition to replace that slot; selecting a built-in retains it.
+Definitions are trusted configuration: review their endpoint and transformations before importing them.
+
+```sh
+jjump config provider-example openrouter-jev > provider.json
+# Edit provider.json if needed; it contains configuration, never the key.
+jjump config import-provider provider.json
+export OPENROUTER_API_KEY="your-openrouter-key" # or: jjump credential set
+jjump config set semantic on
+jjump preview backend                       # inspect the exact filtered request offline
+```
+
+`provider-example` also accepts `openrouter-microsoft`, `openrouter-openai`, `openrouter-clef`, `vercel-openai` and
+`local-tev1`. The three additional OpenRouter examples use its alpha Decisions route with the same System One-shaped
+choice contract. Jev's template explicitly admits the dated model ID documented by OpenRouter; other templates accept
+the requested model only unless you add a verified response alias. The gateway examples target OpenRouter's
+[System One endpoint](https://openrouter.ai/docs/guides/community/typesafe-sdk) and Vercel's
+[OpenAI-compatible Decisions endpoint](https://vercel.com/i/ai-sdk-evaluation-to-decisions). They are synthetic format
+tested; live account permissions and model quality are not tested. Gateway API changes may require editing the definition.
+The editable files are in [examples/providers](../examples/providers/). A model served in a different protocol needs the
+matching wire definition, not just a changed URL. Model fallbacks with unlisted response names are rejected.
+
+Import validates offline, selects `dsl`, and copies the definition into private configuration. The source file can then
+be removed. Semantic enablement, consent and privacy settings are preserved. Import resets the custom credential source
+to `environment`; it never writes or deletes an OS key. `credential set` stores under `j-jump.dsl.DEFINITION-ID`, account
+`api-key`, separate from every built-in and other definition ID. Profiles with the same definition ID share that OS entry.
+The explicitly named, nonempty environment variable takes priority. Secret values are resolved only in transport and are
+never available to expressions, preview, definition hashes or diagnostics.
+
+### Definition format
+
+The complete examples are runnable templates. Top-level fields are strict:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | `1`; unknown versions and fields fail before saving |
+| `id` | 1–64 lowercase letters, digits or hyphens; credential namespace |
+| `model` | Exact request model, also required at the root of the wire request |
+| `url` | Complete JSON POST endpoint; no credentials, query or fragment |
+| `transport` | `https`, or `loopback` for numeric `127.0.0.1` / `[::1]` HTTP |
+| `auth` | `{"type":"none"}`, `{"type":"bearer","env":"MY_API_KEY"}`, or `{"type":"header","env":"MY_API_KEY","name":"x-api-key"}` |
+| `limits` | Optional `candidates` (1–254), `body_bytes` (256–65536), `context_bytes` (optional 256–65536), `diverse`, `cache` |
+| `response_models` | Optional explicit response model aliases; no wildcards; max 16 |
+| `wire` | `request`, `response`, `questions`, optional `request_shape`, `response_shape`, `response_checks` |
+| `probe` | Optional finite local check plan, described below |
+
+Default limits: 254 candidates, 64 KiB body, no context limit, no diversity adjustment, cache off. Local responses are
+never persisted in the answer cache even if `cache` is requested. Cloud endpoints honor configured proxy settings;
+loopback always connects directly. Redirects are disabled. Loopback definitions must use `auth: {"type":"none"}`.
+Host, content framing and proxy credential headers cannot be overridden. Only JSON POST APIs and bounded local GET/POST
+probes are supported; streaming, OAuth exchange, arbitrary signing, service installation and downloads need host support.
+
+### Expressions and source validation
+
+An expression is a tagged JSON object. Fields not listed for its operation are errors.
+
+| `op` | Fields and result |
+| --- | --- |
+| `literal` | `value`: return literal JSON |
+| `ref` | `path`: JSON Pointer into the current root; optional `default` (including null) for missing values |
+| `object` | `fields`: object mapping keys to expressions |
+| `array` | `items`: array of expressions |
+| `entries` | `input`: turn an object into `[{"key":...,"value":...}]` |
+| `map` | `input`, `body`: evaluate body for each array item |
+| `map_values` | `input`, `body`: transform object values, retaining keys |
+| `filter` | `input`, `condition`: retain array items whose condition is true |
+| `index` | `input`, `key`, `value`: array to object; duplicate keys are errors |
+| `stringify` | `input`: serialize any JSON as a string |
+| `text` | `input`: preserve strings; serialize other JSON as a string |
+| `if` | `condition`, `then`, `otherwise`: evaluate the selected branch |
+| `eq`, `le`, `add` | `left`, `right`: JSON equality, unsigned integer comparison or checked addition |
+| `length` | `input`: object/array count or string UTF-8 byte length |
+| `all`, `any` | `items`: boolean conjunction/disjunction; every operand is checked |
+| `not` | `input`: boolean negation |
+| `version_at_least` | `input`, `minimum`: compare a three-part version with `[major,minor,patch]`; suffixes are ignored |
+
+Request roots contain only `task` (already filtered `state` and named `questions`) and `model`. Response roots contain
+only `response`; question recovery roots contain only `request`. Mapping operations bind the current element as `item`,
+replacing that binding inside nested maps. There is no environment, file, shell, script, URL fetching or secret operation.
+Request recovery must preserve the exact question and choice IDs, including `none`, before a request can be sent.
+Response normalization must produce the shared `{model, answers, usage?}` format. Core checks still enforce model and
+question identity, choice IDs, refusal handling, finite probabilities, distribution sums, maximum choice and abstention.
+
+A shape supports `kind` (`object`, `array`, `string`, `uint`, `number`, `boolean`, `null`, or empty for unconstrained JSON),
+`properties`, `required`, `extra`, `items`, `values`, `choices`, `any`, `min`, and `max`. Objects reject unknown fields by
+default; `values` validates dynamic object entries. `any` accepts one matching shape. `min`/`max` bound collection sizes
+or string byte lengths. `response_checks` is an array of boolean expressions, all required to be true before normalization.
+Gateway definitions explicitly admit documented metadata and project it out; malformed decision fields remain errors.
+
+Definitions are at most 32 KiB; expressions have at most 4096 nodes and depth 32. Values are bounded to 1024 entries per
+collection, depth 32 and 256 KiB serialized size. Each expression evaluation has 100,000 work units; response assertions and normalization share one budget; intermediate output
+bytes and copied mapping scopes consume additional units. The core crops the candidate prefix to the configured body/context budget before sending.
+Unsupported operations, missing references, duplicate JSON keys, duplicate indices, wrong types and exhausted limits fail
+closed. The full definition digest participates in endpoint binding, cache and circuit identities. Adapter configuration
+fingerprints prevent a pending request from crossing a concurrent definition change.
+
+### Local Tev and probes
+
+The built-in `tev1` setup and model discovery continue to work. To use the entirely configurable local example:
+
+```sh
+jjump config provider-example local-tev1 > local-provider.json
+# Edit its loopback URL/model if needed, after installing Ollama and compatible GGUF weights.
+jjump config import-provider local-provider.json
+jjump provider-check --json
+```
+
+The example checks Ollama version, confirms the selected GGUF tag, then sends a synthetic ready/none decision. It retains
+Tev's 23-candidate and 1600-byte context limits, with no answer cache. It never starts Ollama or downloads weights.
+
+A `probe` has `steps` (1–7) and a `report` expression. Each step has an absolute same-origin `path`, optional synthetic
+`task`, optional `expect_choice`, and optional boolean `checks`. A step without a task uses GET; one with a task adapts it
+through `wire.request` and uses POST. Checks run after each reply with `response`, `responses`, and `model`; an expected
+choice must pass core decision validation. The report must evaluate to an object and sees `responses` and `model`.
+Only explicit `provider-check` runs the plan, within the shared 10-second deadline; import/setup/doctor/preview do not.
+Custom model discovery is currently unsupported; built-in Tev retains its installed-model selector.

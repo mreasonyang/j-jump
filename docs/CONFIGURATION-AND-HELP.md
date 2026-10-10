@@ -171,3 +171,33 @@ jjump config set semantic on
 `OPENAI_API_KEY` 优先于 OpenAI 的独立系统凭证；来源保存在 `providers.openai.credential`，仅允许
 `environment` 或 `system`，配置文件不保存 Key。切换服务商保留已保存来源，取消向导丢弃未保存 Key。
 setup、doctor 不发送请求，也不验证账号权限；本地导航不需要 OpenAI Key。
+
+## DSL 自定义 API（0.0.43 起）
+
+新增 JSON API 可通过声明式定义接入，无需新增 Rust provider。内置 Jev、Clef、OpenAI、Tev 的请求与响应转换
+也使用同一个 DSL 引擎；原有名称、设置和凭据保持可用。定义是受信任配置，导入前检查接口地址与转换内容。
+
+```sh
+jjump config provider-example openrouter-jev > provider.json
+jjump config import-provider provider.json
+export OPENROUTER_API_KEY="your-openrouter-key"  # 或 jjump credential set
+jjump config set semantic on
+jjump preview backend
+```
+
+可导出的示例还有 `openrouter-microsoft`、`openrouter-openai`、`openrouter-clef`、`vercel-openai`（使用 `AI_GATEWAY_API_KEY`）和 `local-tev1`。示例经过合成数据测试，尚未验证
+真实账号权限或模型质量。完整定义见 [examples/providers](../examples/providers/)，字段与操作参考
+[英文 DSL 文档](CONFIGURATION.md#declarative-apis-0043)。不同协议需要对应的请求、响应与问题还原转换，不能仅改 URL。
+
+导入在离线完成校验后，复制定义到配置并选择 `dsl`；随后可删除源文件。只有一个自定义槽位，再次导入会替换它。
+切换至内置 provider 会保留自定义定义。导入保留 semantic、consent、privacy 设置，将自定义凭据来源设为 environment，
+不会改写或删除系统 Key。系统凭据按 `j-jump.dsl.定义ID` 隔离；相同定义 ID 的多个配置共享该项，环境变量优先。
+
+DSL 支持 JSON 构造、映射、过滤、唯一索引、序列化、条件、断言和受限版本比较；不提供 shell、文件、环境读取或
+任意脚本执行。凭据仅在传输层解析，表达式无法访问。云端只允许 HTTPS，本机仅允许数字 loopback HTTP，直连且不携带
+凭据；所有接口禁用重定向。核心继续执行隐私过滤、候选绑定、模型匹配、概率校验、弃权和显式选择。缓存、熔断与后台
+请求都绑定具体定义版本。定义最多 32 KiB，递归、集合、计算量和请求体均受限。
+
+本机 `local-tev1` 示例保留 23 个候选、1600 字节上下文预算、不缓存响应，并声明版本检查、GGUF 标签检查及合成请求。
+只有显式 `jjump provider-check` 执行这些诊断，总期限 10 秒；导入、setup、doctor 和 preview 不自动请求。Ollama 安装、
+服务启动与模型下载仍需用户完成。内置 tev1 保留安装模型发现与选择，自定义 DSL 暂不提供模型发现。

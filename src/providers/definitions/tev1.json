@@ -1,0 +1,61 @@
+{
+  "request": {
+    "op": "object",
+    "fields": {
+      "model": {
+        "op": "ref",
+        "path": "/model"
+      },
+      "state": {
+        "op": "ref",
+        "path": "/task/state"
+      },
+      "questions": {
+        "op": "map_values",
+        "input": {
+          "op": "ref",
+          "path": "/task/questions"
+        },
+        "body": {
+          "op": "object",
+          "fields": {
+            "type": {
+              "op": "ref",
+              "path": "/item/type"
+            },
+            "instructions": {
+              "op": "ref",
+              "path": "/item/instructions"
+            },
+            "criteria": {
+              "op": "map_values",
+              "input": {
+                "op": "ref",
+                "path": "/item/criteria"
+              },
+              "body": {
+                "op": "text",
+                "input": {
+                  "op": "ref",
+                  "path": "/item"
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": {
+        "op": "literal",
+        "value": "5m"
+      }
+    }
+  },
+  "response": {
+    "op": "ref",
+    "path": "/response"
+  },
+  "questions": {
+    "op": "ref",
+    "path": "/request/questions"
+  }
+}

@@ -289,4 +289,45 @@ fn os_credential_entries_are_independent_in_an_isolated_backend() {
         &**credential::system_for(Provider::Jev).unwrap().unwrap(),
         "synthetic-jev"
     );
+    // This test owns an in-memory backend; custom identities never reach the OS.
+    let (_temp, paths, _, _) = fixture();
+    let d = j_jump::providers::dsl::Definition::parse(include_bytes!(
+        "../examples/providers/openrouter-jev.json"
+    ))
+    .unwrap();
+    let mut custom = Config {
+        provider: Provider::parse("dsl").unwrap(),
+        api_definition: Some(d),
+        ..Config::default()
+    };
+    credential::save_config(
+        &paths,
+        &custom,
+        &paths.fingerprint().unwrap(),
+        "synthetic-custom-first",
+    )
+    .unwrap();
+    assert_eq!(
+        &**credential::system_for_config(&custom).unwrap().unwrap(),
+        "synthetic-custom-first"
+    );
+    custom.api_definition.as_mut().unwrap().id = "synthetic-other".into();
+    assert!(credential::system_for_config(&custom).unwrap().is_none());
+    credential::save_config(
+        &paths,
+        &custom,
+        &paths.fingerprint().unwrap(),
+        "synthetic-custom-second",
+    )
+    .unwrap();
+    credential::delete_for_config(&custom).unwrap();
+    custom.api_definition.as_mut().unwrap().id = "openrouter-jev".into();
+    assert_eq!(
+        &**credential::system_for_config(&custom).unwrap().unwrap(),
+        "synthetic-custom-first"
+    );
+    assert_eq!(
+        &**credential::system_for(Provider::Jev).unwrap().unwrap(),
+        "synthetic-jev"
+    );
 }

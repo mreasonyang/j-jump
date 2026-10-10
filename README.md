@@ -139,3 +139,5 @@ the tests.
 ## License
 
 [MIT](LICENSE.md). Release archives include the licenses and notices of all dependencies.
+
+Custom decision APIs and gateways can be imported with a bounded JSON DSL; see [configuration](docs/CONFIGURATION.md#declarative-apis-0043). / 自定义网关与本地 API 见 [DSL 配置](docs/CONFIGURATION-AND-HELP.md#dsl-自定义-api0043-起)。

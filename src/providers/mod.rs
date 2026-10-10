@@ -1,6 +1,7 @@
 //! Built-in semantic drivers. Navigation and transport consume these contracts;
 //! only this registry knows which implementations are shipped.
 mod clef;
+pub mod dsl;
 mod jev;
 mod openai;
 mod tev1;
@@ -73,8 +74,8 @@ pub struct Connection {
 /// database handle, credentials or network client.
 pub trait ProviderDriver: Sync {
     fn descriptor(&self) -> &'static Descriptor;
-    fn model(&self) -> &'static str;
-    fn selected_model<'a>(&self, _cfg: &'a Config) -> &'a str {
+    fn model(&self) -> &str;
+    fn selected_model<'a>(&'a self, _cfg: &'a Config) -> &'a str {
         self.model()
     }
     fn accepts_model(&self, model: &str) -> bool {
@@ -128,10 +129,7 @@ pub struct ModelOption {
     pub size_bytes: u64,
 }
 pub enum Diagnostic {
-    Request {
-        path: &'static str,
-        body: Option<Vec<u8>>,
-    },
+    Request { path: String, body: Option<Vec<u8>> },
     Complete(Value),
 }
 pub static DRIVERS: &[&dyn ProviderDriver] = &[
@@ -139,6 +137,7 @@ pub static DRIVERS: &[&dyn ProviderDriver] = &[
     &clef::CLEF,
     &tev1::TEV1,
     &openai::OPENAI,
+    &dsl::UNCONFIGURED,
     #[cfg(test)]
     &tests::TINY,
 ];
@@ -234,6 +233,28 @@ impl crate::config::Provider {
     pub const ClefFlash: Self = Self::builtin("clef-flash");
     pub const Tev1: Self = Self::builtin("tev1");
     pub const OpenAI: Self = Self::builtin("openai");
+}
+
+/// Shipped wire definitions use the same interpreter as imported APIs.
+pub fn wire(id: &str) -> &'static dsl::Wire {
+    use std::sync::LazyLock;
+    static WIRES: LazyLock<std::collections::BTreeMap<&'static str, dsl::Wire>> =
+        LazyLock::new(|| {
+            [
+                ("jev", include_str!("definitions/jev.json")),
+                ("clef", include_str!("definitions/clef.json")),
+                ("openai", include_str!("definitions/openai.json")),
+                ("tev1", include_str!("definitions/tev1.json")),
+            ]
+            .into_iter()
+            .map(|(id, text)| {
+                let w: dsl::Wire = serde_json::from_str(text).expect("shipped DSL");
+                w.check().expect("shipped DSL bounds");
+                (id, w)
+            })
+            .collect()
+        });
+    &WIRES[id]
 }
 
 #[cfg(test)]

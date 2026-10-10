@@ -428,7 +428,7 @@ fn grouped_shortlist_in(
         }
         entry.push(c.clone());
     }
-    let capabilities = config.provider.driver().capabilities();
+    let capabilities = config.driver().capabilities();
     let limit = config.candidate_limit.min(capabilities.max_candidates);
     let picked: Vec<(String, String)> = if !lexical.is_empty() {
         order
@@ -597,7 +597,7 @@ pub fn semantic_groups(
 ) -> (Vec<Group>, bool) {
     if force {
         let ordered = scoped(all, lexical, cwd, usize::MAX);
-        if cfg.provider.driver().capabilities().diverse_shortlist {
+        if cfg.driver().capabilities().diverse_shortlist {
             grouped_shortlist_in(&ordered, &[], terms, paths, cfg, Some(cwd))
         } else {
             grouped_shortlist_in(&ordered, &ordered, terms, paths, cfg, Some(cwd))

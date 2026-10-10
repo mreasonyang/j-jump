@@ -80,20 +80,17 @@ impl ProviderDriver for Clef {
             transport: Transport::OfficialHttps,
         })
     }
-    fn decode(&self, mut v: Value) -> Result<Value> {
-        if !v.as_object().is_some_and(|m| {
-            m.keys()
-                .all(|k| ["result", "success", "errors", "messages"].contains(&k.as_str()))
-        }) || v["success"] != true
-            || !v["errors"].as_array().is_some_and(Vec::is_empty)
-            || v.get("messages").is_some_and(|m| !m.is_array())
-        {
-            return Err(Error(
-                5,
-                "Clef-Flash returned an invalid or unsuccessful Cloudflare response".into(),
-            ));
+    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
+        if !self.accepts_model(model) {
+            return Err(Error(5, "unsupported request model".into()));
         }
-        Ok(v["result"].take())
+        super::wire("clef").prepare(task, model)
+    }
+    fn decode(&self, value: Value) -> Result<Value> {
+        super::wire("clef").decode(value)
+    }
+    fn questions(&self, request: &Value) -> Result<Value> {
+        super::wire("clef").questions(request)
     }
     fn config_notice(&self, cfg: &Config, chinese: bool) -> Option<String> {
         if self.connection(cfg, None).is_ok() {

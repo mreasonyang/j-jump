@@ -29,6 +29,18 @@ impl ProviderDriver for Jev {
     fn model(&self) -> &'static str {
         "jev-1.13.0"
     }
+    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
+        if !self.accepts_model(model) {
+            return Err(Error(5, "unsupported request model".into()));
+        }
+        super::wire("jev").prepare(task, model)
+    }
+    fn decode(&self, value: Value) -> Result<Value> {
+        super::wire("jev").decode(value)
+    }
+    fn questions(&self, request: &Value) -> Result<Value> {
+        super::wire("jev").questions(request)
+    }
     fn connection(&self, _: &Config, context: Option<&str>) -> Result<Connection> {
         if context.is_some_and(|s| !s.is_empty()) {
             return Err(Error(5, "invalid provider binding".into()));

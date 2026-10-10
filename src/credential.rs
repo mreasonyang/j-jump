@@ -89,6 +89,79 @@ pub fn get_for(provider: Provider, source: &str) -> Result<Zeroizing<String>> {
         .into(),
     ))
 }
+/// A custom definition can name an environment variable, never a secret value.
+pub fn environment_name_for_config(cfg: &Config) -> Option<&str> {
+    if cfg.provider.id() != "dsl" {
+        return environment_name(cfg.provider);
+    }
+    cfg.api_definition
+        .as_ref()?
+        .env()
+        .filter(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
+}
+fn entry_config(cfg: &Config) -> Result<keyring::Entry> {
+    if cfg.provider.id() != "dsl" {
+        return entry(cfg.provider);
+    }
+    let d = cfg
+        .api_definition
+        .as_ref()
+        .ok_or(Error(2, "no imported definition".into()))?;
+    if d.env().is_none() {
+        return Err(Error(
+            2,
+            "selected provider does not use credentials".into(),
+        ));
+    }
+    keyring::Entry::new(&format!("j-jump.dsl.{}", d.id), "api-key").map_err(|_| {
+        Error(
+            5,
+            "system credential store unavailable; no plaintext fallback".into(),
+        )
+    })
+}
+pub fn system_for_config(cfg: &Config) -> Result<Option<Zeroizing<String>>> {
+    match entry_config(cfg)?.get_password() {
+        Ok(s) => Ok(Some(Zeroizing::new(s))),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err(Error(
+            5,
+            "system credential store locked or unavailable; no plaintext fallback".into(),
+        )),
+    }
+}
+pub fn get_for_config(cfg: &Config, source: &str) -> Result<Zeroizing<String>> {
+    if cfg.provider.id() != "dsl" {
+        return get_for(cfg.provider, source);
+    }
+    if !cfg.needs_credentials() {
+        return Ok(Zeroizing::new(String::new()));
+    }
+    if let Some(name) = environment_name_for_config(cfg) {
+        let secret = Zeroizing::new(
+            std::env::var(name)
+                .map_err(|_| Error(5, "credential environment value is not valid UTF-8".into()))?,
+        );
+        validate(&secret)?;
+        return Ok(secret);
+    }
+    if source == "system" {
+        let secret =
+            system_for_config(cfg)?.ok_or(Error(5, "stored custom API key missing".into()))?;
+        validate(&secret)?;
+        return Ok(secret);
+    }
+    Err(Error(
+        5,
+        "custom API key absent; set the declared environment variable or run credential set".into(),
+    ))
+}
+pub fn delete_for_config(cfg: &Config) -> Result<()> {
+    match entry_config(cfg)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(_) => Err(Error(5, "system credential deletion failed".into())),
+    }
+}
 pub fn validate(secret: &str) -> Result<()> {
     if secret.is_empty() || secret.len() > 4096 || secret.chars().any(char::is_control) {
         return Err(Error(
@@ -129,21 +202,26 @@ trait Store {
     fn put(&self, secret: &str) -> Result<()>;
     fn remove(&self) -> Result<()>;
 }
-struct SystemStore(Provider);
+struct SystemStore(Config);
 impl Store for SystemStore {
     fn get(&self) -> Result<Option<Zeroizing<String>>> {
-        system_for(self.0)
+        system_for_config(&self.0)
     }
     fn put(&self, secret: &str) -> Result<()> {
-        set_for(self.0, secret)
+        entry_config(&self.0)?.set_password(secret).map_err(|_| {
+            Error(
+                5,
+                "system credential save failed; no plaintext fallback".into(),
+            )
+        })
     }
     fn remove(&self) -> Result<()> {
-        delete_for(self.0)
+        delete_for_config(&self.0)
     }
 }
 /// Save a pending secret at setup completion or explicit save, compensating a config failure.
 pub fn save_config(paths: &Paths, cfg: &Config, expected: &str, secret: &str) -> Result<()> {
-    save_using(paths, cfg, expected, secret, &SystemStore(cfg.provider))
+    save_using(paths, cfg, expected, secret, &SystemStore(cfg.clone()))
 }
 fn save_using(
     paths: &Paths,

@@ -81,7 +81,7 @@ p=parse_arguments();root=pathlib.Path(__file__).resolve().parents[1];version=(ro
 if p.release:
  try:source_identity(root);check_binary(binary.read_bytes(),p.target);check_binary_disclosure(binary.read_bytes(),[root,pathlib.Path.home()])
  except (ValueError,OSError,subprocess.CalledProcessError) as error:raise SystemExit(f'release preparation refused: {error}')
-source_paths=['Cargo.toml','Cargo.lock','VERSION','src','shell','packaging','.cargo','build.rs','rust-toolchain','rust-toolchain.toml','scripts/package.py','scripts/release.py','scripts/build-release.py','scripts/ci-release.sh']
+source_paths=['Cargo.toml','Cargo.lock','VERSION','src','examples/providers','shell','packaging','.cargo','build.rs','rust-toolchain','rust-toolchain.toml','scripts/package.py','scripts/release.py','scripts/build-release.py','scripts/ci-release.sh']
 # Unrelated untracked research cannot change this archive or its compiled binary.
 dirty_source=bool(subprocess.check_output(['git','status','--porcelain','--untracked-files=all','--',*source_paths],cwd=root,text=True).strip())
 metadata=json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1','--filter-platform',p.target],cwd=root))

@@ -25,7 +25,7 @@ pub fn valid_account_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
 }
 pub fn account_id(cfg: &Config) -> Result<String> {
-    Ok(cfg.provider.driver().connection(cfg, None)?.context)
+    Ok(cfg.driver().connection(cfg, None)?.context)
 }
 pub fn endpoint(provider: Provider, context: &str) -> Result<String> {
     let cfg = Config {
@@ -127,7 +127,7 @@ pub fn request(
     paths: &Paths,
     cfg: &Config,
 ) -> Result<(Vec<u8>, usize)> {
-    let driver = cfg.provider.driver();
+    let driver = cfg.driver();
     let caps = driver.capabilities();
     let policy = paths.policy(cfg, true);
     if query.len() > 1024
@@ -236,13 +236,29 @@ fn keys(v: &Value, want: &[&str]) -> bool {
 /// Validate a response against the exact request. Ok(None) is a legitimate
 /// abstention: `none`, a tie, or a top probability below one half.
 pub fn validate(bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
+    let req = strict_json(request)?;
+    let model = req["model"]
+        .as_str()
+        .ok_or(Error(5, "invalid request model".into()))?;
+    validate_driver(crate::providers::for_model(model)?, bytes, request)
+}
+pub fn validate_for(cfg: &Config, bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
+    let req = strict_json(request)?;
+    if req["model"] != cfg.driver().selected_model(cfg) {
+        return Err(Error(5, "invalid request model binding".into()));
+    }
+    validate_driver(cfg.driver(), bytes, request)
+}
+fn validate_driver(
+    driver: &dyn crate::providers::ProviderDriver,
+    bytes: &[u8],
+    request: &[u8],
+) -> Result<Option<String>> {
     let mut v = strict_json(bytes)?;
-    let req: Value =
-        serde_json::from_slice(request).map_err(|_| Error(5, "invalid request binding".into()))?;
+    let req = strict_json(request)?;
     let requested_model = req["model"]
         .as_str()
         .ok_or(Error(5, "invalid request model".into()))?;
-    let driver = crate::providers::for_model(requested_model)?;
     v = driver.decode(v)?;
     if !v.as_object().is_some_and(|m| {
         m.keys()
@@ -412,7 +428,7 @@ impl ProviderState {
         deadline: Instant,
         abort: &crate::adapter::Abort,
     ) -> Result<(Option<String>, String)> {
-        let authenticated = cfg.provider.needs_credentials();
+        let authenticated = cfg.needs_credentials();
         let _credential_lock = if authenticated {
             Some(paths.credential_lock(false)?)
         } else {
@@ -426,13 +442,13 @@ impl ProviderState {
         // Credential identity is part of the cache key. A rotated shell or OS key cannot
         // receive a response cached for a different credential.
         let source = cfg.credential_source().to_owned();
-        let provider = cfg.provider;
-        let connection = cfg.provider.driver().connection(cfg, None)?;
+        let credential_cfg = cfg.clone();
+        let connection = cfg.driver().connection(cfg, None)?;
         let account = connection.context;
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         if authenticated {
             std::thread::spawn(move || {
-                let _ = tx.send(crate::credential::get_for(provider, &source));
+                let _ = tx.send(crate::credential::get_for_config(&credential_cfg, &source));
             });
         }
         let mut secret = if !authenticated {
@@ -458,14 +474,14 @@ impl ProviderState {
         };
         let bound = format!(
             "{binding}:{epoch}:{}:{}:{}:{}",
-            provider.id(),
+            cfg.provider_identity(),
             account,
             connection.url,
             crate::digest(secret.as_bytes())
         );
         let identity = format!(
             "{}:{}:{}:{}",
-            provider.id(),
+            cfg.provider_identity(),
             connection.url,
             epoch,
             crate::digest(secret.as_bytes())
@@ -538,7 +554,7 @@ impl ProviderState {
         Ok(())
     }
     /// Shared circuit/cache/validation path. Tests supply a bounded fake transport;
-    /// the product exposes no configurable endpoint or mock switch.
+    /// imported definitions use the same validated transport path.
     pub fn decide(
         &self,
         bytes: &[u8],
@@ -587,7 +603,7 @@ impl ProviderState {
             return Err(Error(5, "semantic networking is disabled".into()));
         }
         let request_value = strict_json(bytes)?;
-        if request_value["model"] != cfg.provider.driver().selected_model(cfg) {
+        if request_value["model"] != cfg.driver().selected_model(cfg) {
             return Err(Error(
                 5,
                 "request does not match the selected provider".into(),
@@ -599,9 +615,8 @@ impl ProviderState {
         let key = crate::digest(
             [
                 PROMPT.as_bytes(),
-                cfg.provider.id().as_bytes(),
-                cfg.provider
-                    .driver()
+                cfg.provider_identity().as_bytes(),
+                cfg.driver()
                     .connection(cfg, None)
                     .map(|c| c.url)
                     .unwrap_or_default()
@@ -612,9 +627,8 @@ impl ProviderState {
             .concat()
             .as_slice(),
         );
-        let caps = cfg.provider.driver().capabilities();
+        let caps = cfg.driver().capabilities();
         let endpoint_identity = cfg
-            .provider
             .driver()
             .connection(cfg, None)
             .map(|c| c.url)
@@ -622,8 +636,8 @@ impl ProviderState {
         let circuit_id = crate::digest(
             format!(
                 "{}:{}:{}:{}",
-                cfg.provider.id(),
-                cfg.provider.driver().selected_model(cfg),
+                cfg.provider_identity(),
+                cfg.driver().selected_model(cfg),
                 identity.unwrap_or(&endpoint_identity),
                 cfg.credential_source()
             )
@@ -658,7 +672,7 @@ impl ProviderState {
                     rusqlite::params![now, key],
                 )
                 .map_err(|_| Error(7, "cache access update failed".into()))?;
-            let decision = validate(&body, bytes)?;
+            let decision = validate_for(cfg, &body, bytes)?;
             if Instant::now() >= deadline {
                 return Err(Error(5, "Provider total request deadline elapsed".into()));
             }
@@ -689,7 +703,7 @@ impl ProviderState {
             if Instant::now() >= deadline {
                 return Err(Error(5, "Provider exceeded total request deadline".into()));
             }
-            let decision = validate(&body, bytes)?;
+            let decision = validate_for(cfg, &body, bytes)?;
             if Instant::now() >= deadline {
                 return Err(Error(5, "Provider exceeded total request deadline".into()));
             }

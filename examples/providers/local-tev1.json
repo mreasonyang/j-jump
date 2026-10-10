@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "id": "local-tev1",
+  "model": "tev1:4b-q8_0",
+  "url": "http://127.0.0.1:11434/v1/systemone",
+  "transport": "loopback",
+  "auth": {
+    "type": "none"
+  },
+  "limits": {
+    "candidates": 23,
+    "body_bytes": 65536,
+    "context_bytes": 1600,
+    "diverse": true,
+    "cache": false
+  },
+  "wire": {
+    "request": {
+      "op": "object",
+      "fields": {
+        "model": {
+          "op": "ref",
+          "path": "/model"
+        },
+        "state": {
+          "op": "ref",
+          "path": "/task/state"
+        },
+        "questions": {
+          "op": "map_values",
+          "input": {
+            "op": "ref",
+            "path": "/task/questions"
+          },
+          "body": {
+            "op": "object",
+            "fields": {
+              "type": {
+                "op": "ref",
+                "path": "/item/type"
+              },
+              "instructions": {
+                "op": "ref",
+                "path": "/item/instructions"
+              },
+              "criteria": {
+                "op": "map_values",
+                "input": {
+                  "op": "ref",
+                  "path": "/item/criteria"
+                },
+                "body": {
+                  "op": "text",
+                  "input": {
+                    "op": "ref",
+                    "path": "/item"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "keep_alive": {
+          "op": "literal",
+          "value": "5m"
+        }
+      }
+    },
+    "response": {
+      "op": "ref",
+      "path": "/response"
+    },
+    "questions": {
+      "op": "ref",
+      "path": "/request/questions"
+    }
+  },
+  "probe": {
+    "steps": [
+      {
+        "path": "/api/version",
+        "checks": [
+          {
+            "op": "version_at_least",
+            "input": {
+              "op": "ref",
+              "path": "/response/version"
+            },
+            "minimum": [
+              0,
+              35,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "path": "/api/tags",
+        "checks": [
+          {
+            "op": "le",
+            "left": {
+              "op": "literal",
+              "value": 1
+            },
+            "right": {
+              "op": "length",
+              "input": {
+                "op": "filter",
+                "input": {
+                  "op": "ref",
+                  "path": "/response/models"
+                },
+                "condition": {
+                  "op": "all",
+                  "items": [
+                    {
+                      "op": "any",
+                      "items": [
+                        {
+                          "op": "eq",
+                          "left": {
+                            "op": "ref",
+                            "path": "/item/name",
+                            "default": null
+                          },
+                          "right": {
+                            "op": "ref",
+                            "path": "/model"
+                          }
+                        },
+                        {
+                          "op": "eq",
+                          "left": {
+                            "op": "ref",
+                            "path": "/item/model",
+                            "default": null
+                          },
+                          "right": {
+                            "op": "ref",
+                            "path": "/model"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "op": "eq",
+                      "left": {
+                        "op": "ref",
+                        "path": "/item/details/format",
+                        "default": null
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": "gguf"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "path": "/v1/systemone",
+        "task": {
+          "state": "Select the option named ready.",
+          "questions": {
+            "destination": {
+              "type": "choice",
+              "instructions": "Select ready.",
+              "criteria": {
+                "ready": "ready",
+                "none": "No match"
+              }
+            }
+          }
+        },
+        "expect_choice": "ready"
+      }
+    ],
+    "report": {
+      "op": "object",
+      "fields": {
+        "runtime_version": {
+          "op": "ref",
+          "path": "/responses/0/version"
+        },
+        "model": {
+          "op": "ref",
+          "path": "/model"
+        },
+        "synthetic_request": {
+          "op": "literal",
+          "value": "passed"
+        },
+        "directory_quality": {
+          "op": "literal",
+          "value": "not measured"
+        },
+        "credentials": {
+          "op": "literal",
+          "value": "not used"
+        },
+        "transport": {
+          "op": "literal",
+          "value": "loopback direct"
+        }
+      }
+    }
+  }
+}

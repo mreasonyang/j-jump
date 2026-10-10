@@ -39,7 +39,7 @@ pub fn diagnose_for(
     cfg: &crate::config::Config,
     kind: crate::providers::DiagnosticKind,
 ) -> Result<serde_json::Value> {
-    let driver = cfg.provider.driver();
+    let driver = cfg.driver();
     // The driver owns metadata and probe semantics. The adapter only executes
     // bounded requests on the already validated local origin.
     let mut responses = Vec::new();
@@ -68,7 +68,7 @@ pub fn diagnose_for(
                     return Err(Error(5, "diagnostic request bounds".into()));
                 }
                 let url = origin
-                    .join(path)
+                    .join(&path)
                     .map_err(|_| Error(5, "invalid diagnostic path".into()))?;
                 if url.origin() != origin.origin() {
                     return Err(Error(5, "diagnostic origin changed".into()));
@@ -963,7 +963,7 @@ fn process(
                 let id = id.clone();
                 let _policy_lock = shared_lock(|| paths.policy_lock())?;
                 let cfg = paths.load()?;
-                let authenticated = cfg.provider.needs_credentials();
+                let authenticated = cfg.needs_credentials();
                 let _credential_lock = if authenticated {
                     Some(shared_lock(|| paths.credential_lock(false))?)
                 } else {
@@ -999,15 +999,23 @@ fn process(
                     key.zeroize();
                     return Err(Error(5, "adapter policy".into()));
                 }
-                let connection = cfg.provider.driver().connection(&cfg, Some(account_id))?;
+                let connection = cfg.driver().connection(&cfg, Some(account_id))?;
                 let selected_endpoint = connection.url;
+                let auth_header = cfg
+                    .api_definition
+                    .as_ref()
+                    .filter(|_| cfg.provider.id() == "dsl")
+                    .and_then(|d| match &d.auth {
+                        crate::providers::dsl::Auth::Header { name, .. } => Some(name.clone()),
+                        _ => None,
+                    });
                 let client = if connection.transport == crate::providers::Transport::Loopback {
                     local_client()?
                 } else {
                     client.clone()
                 };
                 if crate::provider::strict_json(payload.as_bytes())?["model"]
-                    != cfg.provider.driver().selected_model(&cfg)
+                    != cfg.driver().selected_model(&cfg)
                     && endpoint == crate::provider::ENDPOINT
                 {
                     return Err(Error(5, "adapter policy".into()));
@@ -1075,7 +1083,11 @@ fn process(
                 std::thread::spawn(move || {
                     let request = http.post(&url);
                     let request = if authenticated {
-                        request.bearer_auth(&secret)
+                        if let Some(name) = auth_header {
+                            request.header(name, secret.as_str())
+                        } else {
+                            request.bearer_auth(&secret)
+                        }
                     } else {
                         request
                     };
@@ -1404,26 +1416,52 @@ mod tests {
     }
     #[test]
     fn cloud_provider_requests_cross_ipc_with_their_wire_format_and_key() {
-        for provider in [
-            crate::config::Provider::ClefFlash,
-            crate::config::Provider::OpenAI,
+        for (provider, custom_header) in [
+            (crate::config::Provider::ClefFlash, false),
+            (crate::config::Provider::OpenAI, false),
+            (crate::config::Provider::parse("dsl").unwrap(), false),
+            (crate::config::Provider::parse("dsl").unwrap(), true),
         ] {
             let (_temp, paths, _) = fixture();
             let mut cfg = paths.load().unwrap();
             cfg.provider = provider;
             cfg.cloudflare_account_id = "00000000000000000000000000000001".into();
+            if provider.id() == "dsl" {
+                use crate::providers::dsl::{Auth, Definition, Limits};
+                cfg.api_definition = Some(Definition {
+                    version: 1,
+                    id: "synthetic-api".into(),
+                    model: "gpt-6-luna".into(),
+                    url: "https://example.invalid/decisions".into(),
+                    transport: "https".into(),
+                    auth: if custom_header {
+                        Auth::Header {
+                            env: "SYNTHETIC_API_KEY".into(),
+                            name: "x-api-key".into(),
+                        }
+                    } else {
+                        Auth::Bearer {
+                            env: "SYNTHETIC_API_KEY".into(),
+                        }
+                    },
+                    limits: Limits::default(),
+                    response_models: vec![],
+                    wire: crate::providers::wire("openai").clone(),
+                    probe: None,
+                });
+            }
             paths.save(&cfg, &paths.fingerprint().unwrap()).unwrap();
             let fingerprint = paths.fingerprint().unwrap();
-            let connection = provider.driver().connection(&cfg, None).unwrap();
+            let connection = cfg.driver().connection(&cfg, None).unwrap();
             let account = connection.context;
             let route = reqwest::Url::parse(&connection.url)
                 .unwrap()
                 .path()
                 .to_owned();
-            let model = provider.driver().model();
+            let model = cfg.driver().model().to_owned();
             let task = serde_json::json!({"state":{"query":"backend"},
                 "questions":{"destination":{"type":"choice","instructions":"Choose", "criteria":{"d1":"server", "none":"No match"}}}});
-            let payload = provider.driver().prepare(task, model).unwrap();
+            let payload = cfg.driver().prepare(task, &model).unwrap();
             let expected_payload = payload.clone();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let url = format!("http://{}{}", listener.local_addr().unwrap(), route);
@@ -1433,10 +1471,15 @@ mod tests {
                 let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
                 let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
                 assert!(headers.starts_with(&format!("post {route} ")));
-                assert!(headers.contains("authorization: bearer synthetic-provider-key"));
+                if custom_header {
+                    assert!(headers.contains("x-api-key: synthetic-provider-key"));
+                    assert!(!headers.contains("authorization:"));
+                } else {
+                    assert!(headers.contains("authorization: bearer synthetic-provider-key"));
+                }
                 assert!(headers.contains("content-type: application/json"));
                 assert_eq!(&request[end + 4..], &expected_payload);
-                let response = if provider == crate::config::Provider::OpenAI {
+                let response = if provider == crate::config::Provider::OpenAI || provider.id()=="dsl" {
                     serde_json::json!({"model":model,"answers":[{"name":"destination","type":"choice","choice":"d1",
                         "probabilities":[{"value":"d1","probability":0.9},{"value":"none","probability":0.1}],"confidence":0.9}],
                         "usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens":0,
@@ -1484,7 +1527,7 @@ mod tests {
             .unwrap();
             assert!(key.is_empty());
             assert_eq!(
-                crate::provider::validate(&body, &payload).unwrap(),
+                crate::provider::validate_for(&cfg, &body, &payload).unwrap(),
                 Some("d1".into())
             );
             task.join().unwrap();
