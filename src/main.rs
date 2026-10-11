@@ -185,6 +185,8 @@ enum CredentialCommand {
 enum ConfigCommand {
     /// Validate and select a JSON provider definition, without network access.
     ImportProvider { file: PathBuf },
+    /// Remove the saved custom definition; OS credential entries are not touched.
+    RemoveProvider,
     /// Print a shipped gateway definition for editing.
     ProviderExample { name: String },
     Show {
@@ -944,6 +946,15 @@ fn query(
     }
     output(&target)
 }
+fn definition_state(cfg: &Config) -> &'static str {
+    if cfg.rejected_definition.is_some() {
+        "invalid"
+    } else if cfg.api_definition.is_some() {
+        "ok"
+    } else {
+        "none"
+    }
+}
 fn setup(paths: &Paths, offline: bool) -> Result<()> {
     setup_ui::run(paths, offline)
 }
@@ -952,7 +963,38 @@ fn credential_status(cfg: &Config) -> serde_json::Value {
         return json!({"provider":cfg.provider.id(),"source":"none","required":false,"system_store":"not accessed"});
     }
     let environment = j_jump::credential::environment_name_for_config(cfg).is_some();
-    json!({"provider":cfg.provider.id(),"environment_variable":j_jump::credential::environment_name_for_config(cfg),"source":if environment{"environment"}else{cfg.credential_source()},"present":if environment{Some(true)}else if cfg.credential_source()=="system"{None}else{Some(false)},"system_store":"not accessed by offline status"})
+    json!({"provider":cfg.provider.id(),"environment_variable":j_jump::credential::declared_environment_name(cfg),"source":if environment{"environment"}else{cfg.credential_source()},"present":if environment{Some(true)}else if cfg.credential_source()=="system"{None}else{Some(false)},"system_store":"not accessed by offline status"})
+}
+fn import_summary(d: &j_jump::providers::dsl::Definition) -> String {
+    use j_jump::providers::dsl::Auth;
+    let auth = match &d.auth {
+        Auth::None => ui::tr("none", "无").to_owned(),
+        Auth::Bearer { env } => format!(
+            "{} ${}",
+            ui::tr("bearer token from", "Bearer 令牌，来自"),
+            j_jump::display(env)
+        ),
+        Auth::Header { env, name } => format!(
+            "{} {} {} ${}",
+            ui::tr("header", "请求头"),
+            j_jump::display(name),
+            ui::tr("from", "，来自"),
+            j_jump::display(env)
+        ),
+    };
+    format!(
+        "{}: {}\n{}: {}\n{}: {}\n{}: {}\n{}: {}",
+        ui::tr("Definition", "定义"),
+        j_jump::display(&d.id),
+        ui::tr("Endpoint", "接口"),
+        j_jump::display(&d.url),
+        ui::tr("Model", "模型"),
+        j_jump::display(&d.model),
+        ui::tr("Transport", "传输"),
+        j_jump::display(&d.transport),
+        ui::tr("Authentication", "认证"),
+        auth
+    )
 }
 fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
     match cmd {
@@ -986,13 +1028,108 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
                 .map_err(|_| Error(2, "cannot read provider definition".into()))?;
             let definition = j_jump::providers::dsl::Definition::parse(&bytes)?;
             let fingerprint = paths.fingerprint()?;
-            let mut cfg = paths.load()?;
+            let mut cfg = paths.load_for_repair()?;
+            ui::configure(&cfg.language);
+            let previous = cfg.api_definition.take();
+            let rejected = cfg.rejected_definition.take().is_some();
+            let same = previous
+                .as_ref()
+                .is_some_and(|d| d.identity() == definition.identity());
+            let summary = import_summary(&definition);
             cfg.api_definition = Some(definition);
             j_jump::providers::select(&mut cfg, j_jump::config::Provider::parse("dsl")?)?;
-            cfg.set_credential_source("environment");
+            if !same {
+                cfg.set_credential_source("environment");
+            }
             paths.save(&cfg, &fingerprint)?;
             println!(
-                "Provider definition imported and selected. Semantic setting and consent preserved; no request sent."
+                "{}",
+                ui::tr(
+                    "Provider definition imported and selected.",
+                    "已导入并选择服务定义。"
+                )
+            );
+            println!("{summary}");
+            if let Some(old) = previous.filter(|_| !same) {
+                println!(
+                    "{} {}",
+                    ui::tr("Replaced definition", "已替换定义"),
+                    j_jump::display(&old.id)
+                );
+            } else if rejected {
+                println!(
+                    "{}",
+                    ui::tr(
+                        "Replaced the invalid saved definition.",
+                        "已替换无效的已保存定义。"
+                    )
+                );
+            }
+            println!(
+                "{}",
+                ui::tr(
+                    "Semantic setting and consent preserved; no request sent.",
+                    "语义开关与请求许可保持不变；未发送请求。"
+                )
+            );
+            Ok(())
+        }
+        ConfigCommand::RemoveProvider => {
+            let fingerprint = paths.fingerprint()?;
+            let mut cfg = paths.load_for_repair()?;
+            ui::configure(&cfg.language);
+            let removed = match (cfg.api_definition.take(), cfg.rejected_definition.take()) {
+                (Some(d), _) => Some(format!(
+                    "{} {}",
+                    ui::tr("Removed custom API definition", "已移除自定义 API 定义"),
+                    j_jump::display(&d.id)
+                )),
+                (None, Some(_)) => Some(
+                    ui::tr(
+                        "Removed the invalid saved custom API definition.",
+                        "已移除无效的自定义 API 定义。",
+                    )
+                    .into(),
+                ),
+                (None, None) => None,
+            };
+            let selected = cfg.provider.id() == "dsl";
+            if removed.is_none() && !selected {
+                println!(
+                    "{}",
+                    ui::tr(
+                        "No custom API definition is saved; nothing changed.",
+                        "没有已保存的自定义 API 定义；未作修改。"
+                    )
+                );
+                return Ok(());
+            }
+            let semantic = cfg.semantic;
+            cfg.providers.remove("dsl");
+            if selected {
+                j_jump::providers::select(&mut cfg, j_jump::config::Provider::default())?;
+                cfg.semantic = false;
+            }
+            paths.save(&cfg, &fingerprint)?;
+            if selected {
+                let _ = adapter::stop(paths);
+            }
+            if let Some(line) = removed {
+                println!("{line}");
+            }
+            if selected {
+                println!(
+                    "provider: dsl -> {}\nsemantic: {} -> off",
+                    cfg.provider.id(),
+                    if semantic { "on" } else { "off" }
+                );
+            }
+            println!(
+                "{}",
+                ui::tr(
+                    "OS credential entries and environment variables were not accessed or changed.",
+                    "未访问或修改系统凭证条目和环境变量。"
+                )
             );
             Ok(())
         }
@@ -1000,7 +1137,7 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
             let cfg = paths.load()?;
             ui::configure(&cfg.language);
             if json {
-                println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"saved":cfg,"source":if paths.config.exists(){"user config"}else{"defaults"},"effective":{"semantic":cfg.semantic&&!offline,"tracking":cfg.tracking,"model":cfg.driver().selected_model(&cfg),"candidate_limit":cfg.candidate_limit.min(cfg.driver().capabilities().max_candidates),"response_cache":cfg.driver().capabilities().cacheable,"transport":cfg.driver().connection(&cfg,None).ok().map(|c|format!("{:?}",c.transport))},"overrides":{"offline":offline},"credential":credential_status(&cfg),"automatic_quality_approved":false,"provider_live_test":"not run","proxy":cfg.proxy})).unwrap());
+                println!("{}",serde_json::to_string_pretty(&json!({"schema_version":1,"saved":cfg,"source":if paths.config.exists(){"user config"}else{"defaults"},"effective":{"semantic":cfg.semantic&&!offline,"tracking":cfg.tracking,"model":cfg.driver().selected_model(&cfg),"candidate_limit":cfg.candidate_limit.min(cfg.driver().capabilities().max_candidates),"response_cache":cfg.driver().capabilities().cacheable,"transport":cfg.driver().connection(&cfg,None).ok().map(|c|format!("{:?}",c.transport))},"overrides":{"offline":offline},"credential":credential_status(&cfg),"automatic_quality_approved":false,"provider_live_test":"not run","provider_definition":definition_state(&cfg),"proxy":cfg.proxy})).unwrap());
             } else {
                 println!(
                     "{}: {}",
@@ -1028,6 +1165,13 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
                     cfg.semantic_route,
                     cfg.language
                 );
+                if let Some(d) = cfg
+                    .api_definition
+                    .as_ref()
+                    .filter(|_| cfg.provider.id() == "dsl")
+                {
+                    println!("{}", import_summary(d));
+                }
                 println!(
                     "exclude={} / no_send={} ({})",
                     cfg.exclude.len(),
@@ -1241,6 +1385,9 @@ fn explain(paths: &Paths, terms: Vec<String>, is_preview: bool, machine: bool) -
     // candidate set for the same terms, including the trailing child-only `/`.
     let (terms, _, child) = prepare_terms(terms, false, false, false)?;
     let cfg = paths.load()?;
+    if is_preview {
+        cfg.require_definition()?;
+    }
     let (diagnostic_store, all) = inventory(paths, &cfg)?;
     let inventory_count = diagnostic_store.list()?.len();
     let cwd = engine::logical_cwd()?;
@@ -1503,11 +1650,12 @@ fn run() -> Result<()> {
                 let cfg = paths.load()?;
                 println!(
                     "{}",
-                    json!({"schema_version":1,"provider":cfg.provider.id(),"environment_present":j_jump::credential::environment_name_for_config(&cfg).is_some(),"configured_source":cfg.credential_source(),"system_entry":"not accessed; status does not unlock credential store"})
+                    json!({"schema_version":1,"provider":cfg.provider.id(),"environment_variable":j_jump::credential::declared_environment_name(&cfg),"environment_present":j_jump::credential::environment_name_for_config(&cfg).is_some(),"configured_source":cfg.credential_source(),"system_entry":"not accessed; status does not unlock credential store"})
                 );
                 Ok(())
             }
             CredentialCommand::Set => {
+                paths.load()?.require_definition()?;
                 if !paths.load()?.needs_credentials() {
                     return Err(Error(
                         2,
@@ -1526,6 +1674,7 @@ fn run() -> Result<()> {
                 Ok(())
             }
             CredentialCommand::Delete { apply } => {
+                paths.load()?.require_definition()?;
                 if !paths.load()?.needs_credentials() {
                     return Err(Error(
                         2,
@@ -1560,6 +1709,7 @@ fn run() -> Result<()> {
                 ));
             }
             let cfg = paths.load()?;
+            cfg.require_definition()?;
             let kind = if models {
                 j_jump::providers::DiagnosticKind::Models
             } else {
@@ -1598,7 +1748,8 @@ fn run() -> Result<()> {
                 db.generation()?;
                 Ok(())
             });
-            let config_ok = cfg.is_ok();
+            // A rejected custom definition blocks only while it is selected.
+            let config_ok = cfg.as_ref().is_ok_and(|c| c.require_definition().is_ok());
             let store_ok = store_check.as_ref().is_some_and(|r| r.is_ok());
             let ready = cfg.as_ref().is_ok_and(|c| {
                 c.semantic
@@ -1621,6 +1772,16 @@ fn run() -> Result<()> {
                 .or_else(|| store_error.and_then(|message| state_path_diagnosis(message, false)))
             {
                 (cause, next)
+            } else if cfg.is_ok() && !config_ok {
+                (
+                    "the saved custom API definition is invalid for this version",
+                    "replace it: jjump config import-provider FILE, or remove it: jjump config remove-provider",
+                )
+            } else if config_error.is_some_and(|m| m.contains("selected without a definition")) {
+                (
+                    "custom API is selected without a definition",
+                    "import one: jjump config import-provider FILE, or remove the selection: jjump config remove-provider",
+                )
             } else if !config_ok {
                 (
                     "configuration is invalid or unsupported",
@@ -1635,7 +1796,7 @@ fn run() -> Result<()> {
             if json {
                 println!(
                     "{}",
-                    json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"configuration":if config_ok{"ok"}else{"invalid"},"store":if store_ok{"ok"}else{"unavailable"},"cause":cause,"provider":cfg.as_ref().ok().map(|c| c.provider.id()),"provider_configured":cfg.as_ref().is_ok_and(|c|c.semantic),"request_configuration_ready":cfg.as_ref().is_ok_and(ui::credential_available),"environment_ready":ready,"credential":cfg.as_ref().ok().map(credential_status),"provider_test":"not run","credential_required":cfg.as_ref().is_ok_and(|c|c.needs_credentials()),"shell_activation":"not verified by child process","offline":offline,"automatic_quality_approved":false,"next":next})
+                    json!({"schema_version":1,"version":env!("CARGO_PKG_VERSION"),"configuration":if config_ok{"ok"}else{"invalid"},"store":if store_ok{"ok"}else{"unavailable"},"cause":cause,"provider":cfg.as_ref().ok().map(|c| c.provider.id()),"provider_configured":cfg.as_ref().is_ok_and(|c|c.semantic),"request_configuration_ready":cfg.as_ref().is_ok_and(ui::credential_available),"environment_ready":ready,"credential":cfg.as_ref().ok().map(credential_status),"provider_test":"not run","provider_definition":cfg.as_ref().ok().map(definition_state),"credential_required":cfg.as_ref().is_ok_and(|c|c.needs_credentials()),"shell_activation":"not verified by child process","offline":offline,"automatic_quality_approved":false,"next":next})
                 );
             } else {
                 println!("J-Jump {}", env!("CARGO_PKG_VERSION"));
@@ -1662,7 +1823,13 @@ fn run() -> Result<()> {
                     if ui::tr("en", "zh") == "zh" {
                         println!(
                             "{}",
-                            if !config_ok {
+                            if cfg.is_ok() && !config_ok {
+                                "已保存的自定义 API 定义不适用于当前版本；请按下方说明替换或移除。\n本地导航不受影响。"
+                            } else if config_error
+                                .is_some_and(|m| m.contains("selected without a definition"))
+                            {
+                                "已选择自定义 API，但没有定义；请按下方说明导入或移除该选择。"
+                            } else if !config_ok {
                                 "配置读取失败；若为格式错误，请先预览恢复。\n权限、所有权或链接问题须先按下方说明处理。"
                             } else {
                                 "访问库不可用；config recover 只修配置，不能修复访问库。\n保留备份，再处理文件权限或从已有备份恢复。"

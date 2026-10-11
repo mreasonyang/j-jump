@@ -994,12 +994,15 @@ fn process(
                     key.zeroize();
                     return Err(Error(5, "adapter credential".into()));
                 }
-                let cfg = paths.load()?;
+                let cfg = paths.load().inspect_err(|_| key.zeroize())?;
                 if !cfg.semantic {
                     key.zeroize();
                     return Err(Error(5, "adapter policy".into()));
                 }
-                let connection = cfg.driver().connection(&cfg, Some(account_id))?;
+                let connection = cfg
+                    .driver()
+                    .connection(&cfg, Some(account_id))
+                    .inspect_err(|_| key.zeroize())?;
                 let selected_endpoint = connection.url;
                 let auth_header = cfg
                     .api_definition
@@ -1014,10 +1017,12 @@ fn process(
                 } else {
                     client.clone()
                 };
-                if crate::provider::strict_json(payload.as_bytes())?["model"]
+                if crate::provider::strict_json(payload.as_bytes())
+                    .inspect_err(|_| key.zeroize())?["model"]
                     != cfg.driver().selected_model(&cfg)
                     && endpoint == crate::provider::ENDPOINT
                 {
+                    key.zeroize();
                     return Err(Error(5, "adapter policy".into()));
                 }
                 if !crate::provider::dispatch_authorized(&paths, &id)? {
@@ -1084,7 +1089,20 @@ fn process(
                     let request = http.post(&url);
                     let request = if authenticated {
                         if let Some(name) = auth_header {
-                            request.header(name, secret.as_str())
+                            match reqwest::header::HeaderValue::from_str(&secret) {
+                                Ok(mut value) => {
+                                    value.set_sensitive(true);
+                                    request.header(name, value)
+                                }
+                                Err(_) => {
+                                    secret.zeroize();
+                                    let _ = tx.send(Err(Error(
+                                        5,
+                                        "credential is not a valid header value".into(),
+                                    )));
+                                    return;
+                                }
+                            }
                         } else {
                             request.bearer_auth(&secret)
                         }

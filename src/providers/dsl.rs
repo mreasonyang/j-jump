@@ -9,11 +9,25 @@ const MAX_VALUE: usize = 262144;
 const MAX_ITEMS: usize = 1024;
 const MAX_DEPTH: usize = 32;
 const FUEL: usize = 100_000;
-fn invalid() -> Error {
-    Error(
-        5,
-        "provider DSL schema, expression or resource limit failed".into(),
-    )
+const LIMIT: &str = "provider DSL resource limit exceeded";
+fn bad(reason: impl std::fmt::Display) -> Error {
+    Error(2, format!("invalid provider definition: {reason}").into())
+}
+fn fail(reason: impl std::fmt::Display) -> Error {
+    Error(5, format!("provider DSL {reason}").into())
+}
+fn ty(op: &str) -> Error {
+    fail(format_args!("{op} operand has the wrong type"))
+}
+fn limit() -> Error {
+    Error(5, LIMIT.into())
+}
+/// Core may retry with fewer candidates only for exhausted evaluation budgets.
+pub fn is_resource_limit(e: &Error) -> bool {
+    e.0 == 5 && e.1.starts_with("provider DSL resource limit")
+}
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
 
 fn present_value<'de, D: serde::Deserializer<'de>>(
@@ -103,6 +117,115 @@ pub enum Expr {
         input: Box<Expr>,
     },
 }
+/// Phase root plus the innermost collection item; `/item` paths read the item.
+#[derive(Clone, Copy)]
+struct Env<'a> {
+    root: &'a Value,
+    item: Option<&'a Value>,
+}
+impl<'a> Env<'a> {
+    fn get(self, path: &str) -> Option<&'a Value> {
+        match (self.item, path.strip_prefix("/item")) {
+            (Some(item), Some("")) => Some(item),
+            (Some(item), Some(rest)) if rest.starts_with('/') => item.pointer(rest),
+            _ => self.root.pointer(path),
+        }
+    }
+    fn bind<'b>(self, item: &'b Value) -> Env<'b>
+    where
+        'a: 'b,
+    {
+        Env {
+            root: self.root,
+            item: Some(item),
+        }
+    }
+}
+/// Serialized length and nesting of a value, composed bottom-up so each output
+/// byte is measured once rather than once per enclosing expression.
+#[derive(Clone, Copy, Default)]
+struct Size {
+    bytes: usize,
+    height: usize,
+    items: usize,
+}
+impl Size {
+    fn container() -> Self {
+        Self {
+            bytes: 2,
+            ..Self::default()
+        }
+    }
+    fn push(&mut self, key: Option<&str>, child: Size) -> Result<()> {
+        self.bytes +=
+            child.bytes + key.map_or(0, |k| json_len(k) + 1) + usize::from(self.items > 0);
+        self.height = self.height.max(child.height + 1);
+        self.items += 1;
+        self.check()?;
+        Ok(())
+    }
+    fn check(self) -> Result<Self> {
+        if self.items > MAX_ITEMS || self.height > MAX_DEPTH || self.bytes > MAX_VALUE {
+            return Err(limit());
+        }
+        Ok(self)
+    }
+}
+struct Count(usize);
+impl std::io::Write for Count {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0 += b.len();
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+fn json_len<T: Serialize + ?Sized>(v: &T) -> usize {
+    let mut c = Count(0);
+    let _ = serde_json::to_writer(&mut c, v);
+    c.0
+}
+fn measure(v: &Value) -> Result<Size> {
+    let mut s = Size::container();
+    match v {
+        Value::Array(a) => {
+            for v in a {
+                s.push(None, measure(v)?)?;
+            }
+        }
+        Value::Object(m) => {
+            for (k, v) in m {
+                s.push(Some(k), measure(v)?)?;
+            }
+        }
+        v => s.bytes = json_len(v),
+    }
+    s.check()
+}
+fn measured(v: Value) -> Result<(Value, Size)> {
+    let s = measure(&v)?;
+    Ok((v, s))
+}
+fn truth(v: Value, op: &str) -> Result<bool> {
+    v.as_bool().ok_or_else(|| ty(op))
+}
+fn uint(v: Value, op: &str) -> Result<u64> {
+    v.as_u64().ok_or_else(|| ty(op))
+}
+/// `X.Y.Z[-pre][+build]`; returns the numeric core and whether it is a pre-release.
+fn version(text: &str) -> Option<([u64; 3], bool)> {
+    let (text, build) = text.split_once('+').unwrap_or((text, "-"));
+    let (core, pre) = text
+        .split_once('-')
+        .map_or((text, None), |(c, p)| (c, Some(p)));
+    if build.is_empty() || pre == Some("") {
+        return None;
+    }
+    let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
+    let v = [parts.next()??, parts.next()??, parts.next()??];
+    parts.next().is_none().then_some((v, pre.is_some()))
+}
 impl Expr {
     fn children(&self) -> Vec<&Expr> {
         match self {
@@ -137,12 +260,12 @@ impl Expr {
     fn check(&self, depth: usize, nodes: &mut usize) -> Result<()> {
         *nodes += 1;
         if depth > MAX_DEPTH || *nodes > 4096 {
-            return Err(invalid());
+            return Err(bad("expression tree exceeds 4096 nodes or depth 32"));
         }
         if let Self::Ref { path, .. } = self
             && (!path.starts_with('/') || path.len() > 1024)
         {
-            return Err(invalid());
+            return Err(bad("ref path must start with / and be at most 1024 bytes"));
         }
         for child in self.children() {
             child.check(depth + 1, nodes)?;
@@ -150,250 +273,259 @@ impl Expr {
         Ok(())
     }
     pub fn evaluate(&self, root: &Value) -> Result<Value> {
-        bounded(root)?;
+        measure(root)?;
         let mut fuel = FUEL;
-        let v = self.eval(root, &mut fuel, 0)?;
-        bounded(&v)?;
-        Ok(v)
+        Ok(self.eval(Env { root, item: None }, &mut fuel, 0)?.0)
     }
-    fn eval(&self, root: &Value, fuel: &mut usize, depth: usize) -> Result<Value> {
+    /// Costs one unit per visited node plus one per 64 output bytes.
+    fn eval(&self, env: Env, fuel: &mut usize, depth: usize) -> Result<(Value, Size)> {
         if *fuel == 0 || depth > MAX_DEPTH {
-            return Err(invalid());
+            return Err(limit());
         }
         *fuel -= 1;
-        let mut run = |e: &Expr| e.eval(root, fuel, depth + 1);
-        let v = match self {
-            Self::Literal { value } => value.clone(),
-            Self::Ref { path, default } => root
-                .pointer(path)
-                .cloned()
-                .or_else(|| default.clone())
-                .ok_or_else(invalid)?,
-            Self::Object { fields } => Value::Object(
-                fields
-                    .iter()
-                    .map(|(k, e)| Ok((k.clone(), run(e)?)))
-                    .collect::<Result<_>>()?,
-            ),
-            Self::Array { items } => {
-                Value::Array(items.iter().map(&mut run).collect::<Result<_>>()?)
+        let mut run = |e: &Expr| e.eval(env, fuel, depth + 1);
+        let (v, size) = match self {
+            Self::Literal { value } => measured(value.clone())?,
+            Self::Ref { path, default } => {
+                measured(env.get(path).or(default.as_ref()).cloned().ok_or_else(|| {
+                    fail(format_args!("ref {} has no value", crate::display(path)))
+                })?)?
             }
-            Self::Entries { input } => Value::Array(
-                run(input)?
-                    .as_object()
-                    .ok_or_else(invalid)?
-                    .iter()
-                    .map(|(k, v)| json!({"key":k,"value":v}))
-                    .collect(),
-            ),
+            Self::Object { fields } => {
+                let (mut out, mut s) = (Map::new(), Size::container());
+                for (k, e) in fields {
+                    let (v, c) = run(e)?;
+                    s.push(Some(k), c)?;
+                    out.insert(k.clone(), v);
+                }
+                (Value::Object(out), s)
+            }
+            Self::Array { items } => {
+                let (mut out, mut s) = (Vec::with_capacity(items.len()), Size::container());
+                for e in items {
+                    let (v, c) = run(e)?;
+                    s.push(None, c)?;
+                    out.push(v);
+                }
+                (Value::Array(out), s)
+            }
+            Self::Entries { input } => {
+                let Value::Object(m) = run(input)?.0 else {
+                    return Err(ty("entries"));
+                };
+                measured(Value::Array(
+                    m.into_iter()
+                        .map(|(k, v)| {
+                            Value::Object(Map::from_iter([
+                                ("key".into(), Value::String(k)),
+                                ("value".into(), v),
+                            ]))
+                        })
+                        .collect(),
+                ))?
+            }
             Self::Map { input, body } => {
-                let input = run(input)?;
-                let a = input.as_array().ok_or_else(invalid)?;
-                if a.len() > MAX_ITEMS {
-                    return Err(invalid());
+                let Value::Array(a) = run(input)?.0 else {
+                    return Err(ty("map"));
+                };
+                let (mut out, mut s) = (Vec::with_capacity(a.len()), Size::container());
+                for item in &a {
+                    let (v, c) = body.eval(env.bind(item), fuel, depth + 1)?;
+                    s.push(None, c)?;
+                    out.push(v);
                 }
-                let mut out = Vec::new();
-                for item in a {
-                    let mut scope = bind_scope(root, fuel)?;
-                    scope["item"] = item.clone();
-                    out.push(body.eval(&scope, fuel, depth + 1)?);
-                }
-                Value::Array(out)
+                (Value::Array(out), s)
             }
             Self::Filter { input, condition } => {
-                let input = run(input)?;
-                let a = input.as_array().ok_or_else(invalid)?;
-                let mut out = Vec::new();
+                let Value::Array(a) = run(input)?.0 else {
+                    return Err(ty("filter"));
+                };
+                let (mut out, mut s) = (Vec::new(), Size::container());
                 for item in a {
-                    let mut scope = bind_scope(root, fuel)?;
-                    scope["item"] = item.clone();
-                    if condition
-                        .eval(&scope, fuel, depth + 1)?
-                        .as_bool()
-                        .ok_or_else(invalid)?
-                    {
-                        out.push(item.clone());
+                    if truth(
+                        condition.eval(env.bind(&item), fuel, depth + 1)?.0,
+                        "filter",
+                    )? {
+                        s.push(None, measure(&item)?)?;
+                        out.push(item);
                     }
                 }
-                Value::Array(out)
+                (Value::Array(out), s)
             }
             Self::VersionAtLeast { input, minimum } => {
-                let v = run(input)?;
-                let text = v.as_str().ok_or_else(invalid)?;
-                let parts = text
-                    .split(['-', '+'])
-                    .next()
-                    .unwrap_or("")
-                    .split('.')
-                    .map(str::parse::<u64>)
-                    .collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(|_| invalid())?;
-                if parts.len() != 3 {
-                    return Err(invalid());
-                }
-                json!(parts.as_slice() >= minimum.as_slice())
+                let (v, pre) = run(input)?
+                    .0
+                    .as_str()
+                    .and_then(version)
+                    .ok_or_else(|| ty("version_at_least"))?;
+                measured(json!(v > *minimum || v == *minimum && !pre))?
             }
             Self::Any { items } => {
                 let mut yes = false;
                 for e in items {
-                    yes |= run(e)?.as_bool().ok_or_else(invalid)?;
+                    yes |= truth(run(e)?.0, "any")?;
                 }
-                json!(yes)
+                measured(json!(yes))?
             }
             Self::MapValues { input, body } => {
-                let input = run(input)?;
-                let a = input.as_object().ok_or_else(invalid)?;
-                let mut out = Map::new();
-                for (k, item) in a {
-                    let mut scope = bind_scope(root, fuel)?;
-                    scope["item"] = item.clone();
-                    out.insert(k.clone(), body.eval(&scope, fuel, depth + 1)?);
+                let Value::Object(m) = run(input)?.0 else {
+                    return Err(ty("map_values"));
+                };
+                let (mut out, mut s) = (Map::new(), Size::container());
+                for (k, item) in &m {
+                    let (v, c) = body.eval(env.bind(item), fuel, depth + 1)?;
+                    s.push(Some(k), c)?;
+                    out.insert(k.clone(), v);
                 }
-                Value::Object(out)
+                (Value::Object(out), s)
             }
             Self::Index { input, key, value } => {
-                let input = run(input)?;
-                let a = input.as_array().ok_or_else(invalid)?;
-                let mut out = Map::new();
-                for item in a {
-                    let mut scope = bind_scope(root, fuel)?;
-                    scope["item"] = item.clone();
-                    let k = key
-                        .eval(&scope, fuel, depth + 1)?
-                        .as_str()
-                        .ok_or_else(invalid)?
-                        .to_owned();
-                    let v = value.eval(&scope, fuel, depth + 1)?;
+                let Value::Array(a) = run(input)?.0 else {
+                    return Err(ty("index"));
+                };
+                let (mut out, mut s) = (Map::new(), Size::container());
+                for item in &a {
+                    let env = env.bind(item);
+                    let Value::String(k) = key.eval(env, fuel, depth + 1)?.0 else {
+                        return Err(ty("index"));
+                    };
+                    let (v, c) = value.eval(env, fuel, depth + 1)?;
+                    s.push(Some(&k), c)?;
                     if out.insert(k, v).is_some() {
-                        return Err(invalid());
+                        return Err(fail("index produced a duplicate key"));
                     }
                 }
-                Value::Object(out)
+                (Value::Object(out), s)
             }
-            Self::Stringify { input } => Value::String(run(input)?.to_string()),
-            Self::Text { input } => {
-                let v = run(input)?;
-                Value::String(
-                    v.as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| v.to_string()),
-                )
-            }
+            Self::Stringify { input } => measured(Value::String(run(input)?.0.to_string()))?,
+            Self::Text { input } => measured(match run(input)?.0 {
+                Value::String(s) => Value::String(s),
+                v => Value::String(v.to_string()),
+            })?,
             Self::If {
                 condition,
                 then,
                 otherwise,
             } => {
-                if run(condition)?.as_bool().ok_or_else(invalid)? {
+                if truth(run(condition)?.0, "if")? {
                     run(then)?
                 } else {
                     run(otherwise)?
                 }
             }
-            Self::Eq { left, right } => Value::Bool(run(left)? == run(right)?),
-            Self::Le { left, right } => Value::Bool(
-                run(left)?.as_u64().ok_or_else(invalid)?
-                    <= run(right)?.as_u64().ok_or_else(invalid)?,
-            ),
-            Self::Add { left, right } => json!(
-                run(left)?
-                    .as_u64()
-                    .ok_or_else(invalid)?
-                    .checked_add(run(right)?.as_u64().ok_or_else(invalid)?)
-                    .ok_or_else(invalid)?
-            ),
-            Self::Length { input } => {
-                let v = run(input)?;
-                json!(match &v {
-                    Value::Array(a) => a.len(),
-                    Value::Object(a) => a.len(),
-                    Value::String(a) => a.len(),
-                    _ => return Err(invalid()),
-                })
-            }
+            Self::Eq { left, right } => measured(Value::Bool(run(left)?.0 == run(right)?.0))?,
+            Self::Le { left, right } => measured(Value::Bool(
+                uint(run(left)?.0, "le")? <= uint(run(right)?.0, "le")?,
+            ))?,
+            Self::Add { left, right } => measured(json!(
+                uint(run(left)?.0, "add")?
+                    .checked_add(uint(run(right)?.0, "add")?)
+                    .ok_or_else(|| fail("add overflowed"))?
+            ))?,
+            Self::Length { input } => measured(json!(match &run(input)?.0 {
+                Value::Array(a) => a.len(),
+                Value::Object(a) => a.len(),
+                Value::String(a) => a.len(),
+                _ => return Err(ty("length")),
+            }))?,
             Self::All { items } => {
                 let mut yes = true;
                 for e in items {
-                    yes &= run(e)?.as_bool().ok_or_else(invalid)?;
+                    yes &= truth(run(e)?.0, "all")?;
                 }
-                json!(yes)
+                measured(json!(yes))?
             }
-            Self::Not { input } => json!(!run(input)?.as_bool().ok_or_else(invalid)?),
+            Self::Not { input } => measured(json!(!truth(run(input)?.0, "not")?))?,
         };
-        bounded(&v)?;
-        let cost = serde_json::to_vec(&v)
-            .map_err(|_| invalid())?
-            .len()
-            .div_ceil(64);
-        *fuel = fuel.checked_sub(cost).ok_or_else(invalid)?;
-        Ok(v)
+        *fuel = fuel
+            .checked_sub(size.bytes.div_ceil(64))
+            .ok_or_else(limit)?;
+        Ok((v, size))
     }
-}
-fn bind_scope(root: &Value, fuel: &mut usize) -> Result<Value> {
-    // Account for copied input, so nested maps of tiny literals cannot bypass
-    // the output-byte budget by repeatedly cloning a large phase root.
-    let cost = serde_json::to_vec(root)
-        .map_err(|_| invalid())?
-        .len()
-        .div_ceil(1024);
-    *fuel = fuel.checked_sub(cost).ok_or_else(invalid)?;
-    Ok(root.clone())
-}
-fn bounded(v: &Value) -> Result<()> {
-    fn walk(v: &Value, depth: usize) -> bool {
-        if depth > MAX_DEPTH {
-            return false;
-        }
-        match v {
-            Value::Array(a) => a.len() <= MAX_ITEMS && a.iter().all(|v| walk(v, depth + 1)),
-            Value::Object(a) => a.len() <= MAX_ITEMS && a.values().all(|v| walk(v, depth + 1)),
-            _ => true,
-        }
-    }
-    if !walk(v, 0) || serde_json::to_vec(v).map_err(|_| invalid())?.len() > MAX_VALUE {
-        return Err(invalid());
-    }
-    Ok(())
 }
 /// Deliberately small shape language, with strict objects by default.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Shape {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub properties: BTreeMap<String, Shape>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub required: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub extra: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub items: Option<Box<Shape>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub values: Option<Box<Shape>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub choices: Vec<Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub any: Vec<Shape>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub min: Option<usize>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub max: Option<usize>,
 }
 impl Shape {
     fn definition_check(&self, depth: usize) -> Result<()> {
-        if depth > MAX_DEPTH
-            || ![
-                "", "object", "array", "string", "uint", "number", "boolean", "null",
-            ]
-            .contains(&self.kind.as_str())
-            || self.min.zip(self.max).is_some_and(|(a, b)| a > b)
-            || self
-                .required
-                .iter()
-                .any(|k| !self.properties.contains_key(k))
+        let kind = self.kind.as_str();
+        let object_only = !self.properties.is_empty()
+            || !self.required.is_empty()
+            || self.values.is_some()
+            || self.extra;
+        let bare = kind.is_empty()
+            && !object_only
+            && self.items.is_none()
+            && self.choices.is_empty()
+            && self.min.is_none()
+            && self.max.is_none();
+        if let Some((_, reason)) = [
+            (depth > MAX_DEPTH, "shape nesting exceeds depth 32"),
+            (
+                ![
+                    "", "object", "array", "string", "uint", "number", "boolean", "null",
+                ]
+                .contains(&kind),
+                "shape kind must be object, array, string, uint, number, boolean or null",
+            ),
+            (
+                !self.any.is_empty() && !bare,
+                "shape any cannot be combined with other keywords",
+            ),
+            (
+                (self.min.is_some() || self.max.is_some())
+                    && !["string", "array", "object"].contains(&kind),
+                "shape min/max require kind string, array or object",
+            ),
+            (
+                self.min.zip(self.max).is_some_and(|(a, b)| a > b),
+                "shape min exceeds max",
+            ),
+            (
+                object_only && kind != "object",
+                "shape properties, required, values and extra require kind object",
+            ),
+            (
+                self.extra && self.values.is_some(),
+                "shape extra cannot be combined with values",
+            ),
+            (
+                self.required
+                    .iter()
+                    .any(|k| !self.properties.contains_key(k)),
+                "shape required names must be declared in properties",
+            ),
+            (
+                self.items.is_some() && kind != "array",
+                "shape items requires kind array",
+            ),
+        ]
+        .into_iter()
+        .find(|c| c.0)
         {
-            return Err(invalid());
+            return Err(bad(reason));
         }
         for s in self
             .properties
@@ -406,53 +538,53 @@ impl Shape {
         }
         Ok(())
     }
-    pub fn validate(&self, v: &Value) -> Result<()> {
+    fn matches(&self, v: &Value) -> bool {
         if !self.any.is_empty() {
-            return if self.any.iter().any(|s| s.validate(v).is_ok()) {
-                Ok(())
-            } else {
-                Err(invalid())
-            };
+            return self.any.iter().any(|s| s.matches(v));
         }
         if !self.choices.is_empty() && !self.choices.contains(v) {
-            return Err(invalid());
+            return false;
         }
-        let len = match self.kind.as_str() {
-            "" => None,
-            "object" => {
-                let a = v.as_object().ok_or_else(invalid)?;
-                if self.required.iter().any(|k| !a.contains_key(k)) {
-                    return Err(invalid());
-                }
-                for (k, v) in a {
-                    if let Some(s) = self.properties.get(k).or(self.values.as_deref()) {
-                        s.validate(v)?;
-                    } else if !self.extra {
-                        return Err(invalid());
-                    }
-                }
-                Some(a.len())
-            }
-            "array" => {
-                let a = v.as_array().ok_or_else(invalid)?;
-                if let Some(s) = &self.items {
-                    for v in a {
-                        s.validate(v)?;
-                    }
+        let len = match (self.kind.as_str(), v) {
+            ("", _) => None,
+            ("object", Value::Object(a)) => {
+                if self.required.iter().any(|k| !a.contains_key(k))
+                    || !a.iter().all(|(k, v)| {
+                        self.properties
+                            .get(k)
+                            .or(self.values.as_deref())
+                            .map_or(self.extra, |s| s.matches(v))
+                    })
+                {
+                    return false;
                 }
                 Some(a.len())
             }
-            "string" => Some(v.as_str().ok_or_else(invalid)?.len()),
-            "uint" if v.as_u64().is_some() => None,
-            "number" if v.is_number() => None,
-            "boolean" if v.is_boolean() => None,
-            "null" if v.is_null() => None,
-            _ => return Err(invalid()),
+            ("array", Value::Array(a)) => {
+                if !self
+                    .items
+                    .as_ref()
+                    .is_none_or(|s| a.iter().all(|v| s.matches(v)))
+                {
+                    return false;
+                }
+                Some(a.len())
+            }
+            ("string", Value::String(s)) => Some(s.len()),
+            ("uint", v) if v.is_u64() => None,
+            ("number", Value::Number(_)) | ("boolean", Value::Bool(_)) | ("null", Value::Null) => {
+                None
+            }
+            _ => return false,
         };
-        if len.is_some_and(|n| self.min.is_some_and(|m| n < m) || self.max.is_some_and(|m| n > m)) {
-            return Err(invalid());
+        len.is_none_or(|n| self.min.is_none_or(|m| n >= m) && self.max.is_none_or(|m| n <= m))
+    }
+    pub fn validate(&self, v: &Value) -> Result<()> {
+        if self.matches(v) {
+            Ok(())
+        } else {
+            Err(fail("value does not match its declared shape"))
         }
-        Ok(())
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -461,11 +593,11 @@ pub struct Wire {
     pub request: Expr,
     pub response: Expr,
     pub questions: Expr,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub request_shape: Shape,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub response_shape: Shape,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub response_checks: Vec<Expr>,
 }
 impl Wire {
@@ -481,49 +613,66 @@ impl Wire {
         self.response_shape.definition_check(0)
     }
     pub fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
-        let v = self
-            .request
-            .evaluate(&json!({"task":&task,"model":model}))?;
-        self.request_shape.validate(&v)?;
+        let root = Value::Object(Map::from_iter([
+            ("task".into(), task),
+            ("model".into(), model.into()),
+        ]));
+        let v = self.request.evaluate(&root)?;
+        if !self.request_shape.matches(&v) {
+            return Err(fail("request does not match request_shape"));
+        }
         if v["model"] != model {
-            return Err(invalid());
+            return Err(fail("request model must equal the selected model"));
         }
         // The inverse mapping must retain every question and every sent choice.
+        let lost = || fail("questions mapping must recover every question and choice");
         let recovered = self.questions(&v)?;
-        let expected = task["questions"].as_object().ok_or_else(invalid)?;
-        let actual = recovered.as_object().ok_or_else(invalid)?;
+        let expected = root["task"]["questions"]
+            .as_object()
+            .ok_or_else(|| fail("task questions must be an object"))?;
+        let actual = recovered.as_object().ok_or_else(lost)?;
         if expected.len() != actual.len() {
-            return Err(invalid());
+            return Err(lost());
         }
         for (name, q) in expected {
             let a = actual
                 .get(name)
                 .and_then(|q| q["criteria"].as_object())
-                .ok_or_else(invalid)?;
-            let b = q["criteria"].as_object().ok_or_else(invalid)?;
+                .ok_or_else(lost)?;
+            let b = q["criteria"]
+                .as_object()
+                .ok_or_else(|| fail("task criteria must be an object"))?;
             if a.len() != b.len() || !b.keys().all(|k| a.contains_key(k)) || !b.contains_key("none")
             {
-                return Err(invalid());
+                return Err(lost());
             }
         }
-        let bytes = serde_json::to_vec(&v).map_err(|_| invalid())?;
-        Ok(bytes)
+        serde_json::to_vec(&v).map_err(|_| fail("request cannot be encoded"))
     }
     pub fn decode(&self, response: Value) -> Result<Value> {
-        bounded(&response)?;
-        self.response_shape.validate(&response)?;
-        let root = json!({"response":response});
-        bounded(&root)?;
-        let mut fuel = FUEL;
+        let root = Value::Object(Map::from_iter([("response".into(), response)]));
+        measure(&root)?;
+        if !self.response_shape.matches(&root["response"]) {
+            return Err(fail("response does not match response_shape"));
+        }
+        let (env, mut fuel) = (
+            Env {
+                root: &root,
+                item: None,
+            },
+            FUEL,
+        );
         for check in &self.response_checks {
-            if check.eval(&root, &mut fuel, 0)? != true {
-                return Err(invalid());
+            if check.eval(env, &mut fuel, 0)?.0 != true {
+                return Err(fail("response check failed"));
             }
         }
-        self.response.eval(&root, &mut fuel, 0)
+        Ok(self.response.eval(env, &mut fuel, 0)?.0)
     }
     pub fn questions(&self, request: &Value) -> Result<Value> {
-        self.request_shape.validate(request)?;
+        if !self.request_shape.matches(request) {
+            return Err(fail("request does not match request_shape"));
+        }
         self.questions.evaluate(&json!({"request":request}))
     }
 }
@@ -534,23 +683,43 @@ pub enum Auth {
     Bearer { env: String },
     Header { env: String, name: String },
 }
+fn default_candidates() -> usize {
+    254
+}
+fn default_body_bytes() -> usize {
+    65536
+}
+fn is_default_candidates(n: &usize) -> bool {
+    *n == default_candidates()
+}
+fn is_default_body_bytes(n: &usize) -> bool {
+    *n == default_body_bytes()
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
+    #[serde(
+        default = "default_candidates",
+        skip_serializing_if = "is_default_candidates"
+    )]
     pub candidates: usize,
+    #[serde(
+        default = "default_body_bytes",
+        skip_serializing_if = "is_default_body_bytes"
+    )]
     pub body_bytes: usize,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub context_bytes: Option<usize>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub diverse: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub cache: bool,
 }
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            candidates: 254,
-            body_bytes: 65536,
+            candidates: default_candidates(),
+            body_bytes: default_body_bytes(),
             context_bytes: None,
             diverse: false,
             cache: false,
@@ -562,11 +731,11 @@ impl Default for Limits {
 pub struct ProbeStep {
     pub path: String,
     /// A privacy-free synthetic task, adapted by the selected wire definition.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub task: Option<Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub expect_choice: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub checks: Vec<Expr>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -584,110 +753,163 @@ pub struct Definition {
     pub url: String,
     pub transport: String,
     pub auth: Auth,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub limits: Limits,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub response_models: Vec<String>,
     pub wire: Wire,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub probe: Option<Probe>,
 }
+const RESERVED_HEADERS: &[&str] = &[
+    "host",
+    "content-length",
+    "connection",
+    "transfer-encoding",
+    "content-type",
+    "proxy-authorization",
+    "proxy-authenticate",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "upgrade",
+    "keep-alive",
+    "expect",
+];
 impl Definition {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > MAX_BYTES {
-            return Err(invalid());
+            return Err(bad("definition exceeds 32 KiB"));
         }
-        let value = crate::provider::strict_json(bytes)?;
-        let d: Self = serde_json::from_value(value).map_err(|_| invalid())?;
+        let value = crate::provider::strict_json(bytes)
+            .map_err(|_| bad("not strict JSON or duplicate key"))?;
+        if value.get("version").is_some_and(|v| v != 1) {
+            return Err(bad("unsupported version"));
+        }
+        let d: Self = serde_json::from_slice(bytes).map_err(bad)?;
         d.validate()?;
         Ok(d)
     }
     pub fn validate(&self) -> Result<()> {
-        if serde_json::to_vec(self).map_err(|_| invalid())?.len() > MAX_BYTES
-            || self.version != 1
-            || self.id.is_empty()
-            || self.id.len() > 64
-            || !self
-                .id
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-            || self.model.is_empty()
-            || self.model.len() > 256
-            || self.model.chars().any(char::is_control)
-            || !(1..=254).contains(&self.limits.candidates)
-            || !(256..=65536).contains(&self.limits.body_bytes)
-            || self
-                .limits
-                .context_bytes
-                .is_some_and(|n| !(256..=65536).contains(&n))
-            || self.response_models.len() > 16
-            || self
-                .response_models
-                .iter()
-                .any(|s| s.is_empty() || s.len() > 256 || s.chars().any(char::is_control))
+        let text = |s: &str| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control);
+        let range = |n: usize| (256..=65536).contains(&n);
+        if let Some((_, reason)) = [
+            (
+                serde_json::to_vec(self).map_or(true, |b| b.len() > MAX_BYTES),
+                "definition exceeds 32 KiB",
+            ),
+            (self.version != 1, "unsupported version"),
+            (
+                !(1..=64).contains(&self.id.len())
+                    || !self
+                        .id
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+                "id must be 1-64 lowercase letters, digits or -",
+            ),
+            (
+                !text(&self.model),
+                "model must be 1-256 bytes without control characters",
+            ),
+            (
+                !(1..=254).contains(&self.limits.candidates)
+                    || !range(self.limits.body_bytes)
+                    || self.limits.context_bytes.is_some_and(|n| !range(n)),
+                "limits out of range: candidates 1-254, body_bytes and context_bytes 256-65536",
+            ),
+            (
+                self.response_models.len() > 16 || !self.response_models.iter().all(|s| text(s)),
+                "response_models must be at most 16 names of 1-256 bytes without control characters",
+            ),
+        ]
+        .into_iter()
+        .find(|c| c.0)
         {
-            return Err(invalid());
+            return Err(bad(reason));
         }
         self.wire.check()?;
-        let u = reqwest::Url::parse(&self.url).map_err(|_| invalid())?;
-        if !u.username().is_empty()
-            || u.password().is_some()
-            || u.query().is_some()
-            || u.fragment().is_some()
-            || u.host_str().is_none()
-            || u.port_or_known_default() == Some(0)
-        {
-            return Err(invalid());
-        }
+        let u = reqwest::Url::parse(&self.url)
+            .ok()
+            .filter(|u| {
+                u.username().is_empty()
+                    && u.password().is_none()
+                    && u.query().is_none()
+                    && u.fragment().is_none()
+                    && u.host_str().is_some()
+                    && u.port_or_known_default() != Some(0)
+            })
+            .ok_or_else(|| {
+                bad("url must be absolute with a host and nonzero port, without credentials, query or fragment")
+            })?;
         match self.transport.as_str() {
             "https" if u.scheme() == "https" => (),
             "loopback"
                 if u.scheme() == "http"
                     && matches!(u.host_str(), Some("127.0.0.1" | "[::1]"))
                     && self.auth == Auth::None => {}
-            _ => return Err(invalid()),
+            _ => {
+                return Err(bad(
+                    "url must be https, or http to 127.0.0.1/[::1] with auth none (transport https or loopback)",
+                ));
+            }
         }
-        if let Some(env) = self.env()
-            && (env.is_empty()
+        if let Some(env) = self.env() {
+            if env.is_empty()
                 || env.len() > 128
                 || !env
                     .bytes()
                     .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-                || env.as_bytes()[0].is_ascii_digit())
-        {
-            return Err(invalid());
+                || env.as_bytes()[0].is_ascii_digit()
+            {
+                return Err(bad(
+                    "auth env must be 1-128 uppercase letters, digits or _, not starting with a digit",
+                ));
+            }
+            if DRIVERS
+                .iter()
+                .filter_map(|d| d.descriptor().credential.as_ref())
+                .any(|c| c.env.contains(&env))
+            {
+                return Err(bad("credential variable reserved for built-in provider"));
+            }
         }
         if let Auth::Header { name, .. } = &self.auth {
-            let h =
-                reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid())?;
-            if [
-                "host",
-                "content-length",
-                "connection",
-                "transfer-encoding",
-                "content-type",
-                "proxy-authorization",
-            ]
-            .contains(&h.as_str())
-            {
-                return Err(invalid());
+            let h = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                .ok()
+                .filter(|_| name.len() <= 64)
+                .ok_or_else(|| bad("auth header name must be an HTTP token of at most 64 bytes"))?;
+            if RESERVED_HEADERS.contains(&h.as_str()) {
+                return Err(bad("auth header name is reserved for transport"));
             }
         }
         if let Some(p) = &self.probe {
             if self.transport != "loopback" || p.steps.is_empty() || p.steps.len() > 7 {
-                return Err(invalid());
+                return Err(bad("probe requires loopback transport and 1-7 steps"));
             }
             for step in &p.steps {
                 if !step.path.starts_with('/')
                     || step.path.starts_with("//")
                     || step.path.contains(['?', '#', '\\'])
-                    || step.expect_choice.is_some() && step.task.is_none()
+                    || step
+                        .path
+                        .chars()
+                        .any(|c| c.is_control() || c.is_whitespace())
+                    || !u.join(&step.path).is_ok_and(|t| t.origin() == u.origin())
                 {
-                    return Err(invalid());
+                    return Err(bad(
+                        "probe step path must be a same-origin absolute path without query, fragment, backslash, whitespace or control characters",
+                    ));
+                }
+                if step.expect_choice.is_some() && step.task.is_none() {
+                    return Err(bad("probe expect_choice requires task"));
                 }
                 if let Some(task) = &step.task {
-                    bounded(task)?;
-                    self.wire.prepare(task.clone(), &self.model)?;
+                    self.wire.prepare(task.clone(), &self.model).map_err(|e| {
+                        bad(format_args!(
+                            "probe task: {}",
+                            e.1.trim_start_matches("provider DSL ")
+                        ))
+                    })?;
                 }
                 let mut n = 0;
                 for c in &step.checks {
@@ -783,13 +1005,13 @@ impl ProviderDriver for Definition {
             transport: if self.transport == "loopback" {
                 Transport::Loopback
             } else {
-                Transport::OfficialHttps
+                Transport::Https
             },
         })
     }
     fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
         if model != self.model {
-            return Err(invalid());
+            return Err(fail("request model must equal the selected model"));
         }
         self.wire.prepare(task, model)
     }
@@ -835,29 +1057,42 @@ impl ProviderDriver for Definition {
             .as_ref()
             .ok_or(Error(2, "this definition has no local probe plan".into()))?;
         if responses.len() > p.steps.len() {
-            return Err(invalid());
+            return Err(fail("probe received more responses than steps"));
         }
         let mut fuel = FUEL;
         for (i, response) in responses.iter().enumerate() {
             let step = &p.steps[i];
-            let root = json!({"response":response,"responses":responses,"model":self.model});
-            for check in &step.checks {
-                bounded(&root)?;
-                if check.eval(&root, &mut fuel, 0)? != true {
-                    return Err(invalid());
+            if !step.checks.is_empty() {
+                let root = json!({"response":response,"responses":responses,"model":self.model});
+                measure(&root)?;
+                for check in &step.checks {
+                    if check
+                        .eval(
+                            Env {
+                                root: &root,
+                                item: None,
+                            },
+                            &mut fuel,
+                            0,
+                        )?
+                        .0
+                        != true
+                    {
+                        return Err(fail("probe check failed"));
+                    }
                 }
             }
             if let Some(choice) = &step.expect_choice {
-                let request = self.prepare(step.task.clone().ok_or_else(invalid)?, &self.model)?;
-                if crate::provider::validate_for(
-                    cfg,
-                    &serde_json::to_vec(response).map_err(|_| invalid())?,
-                    &request,
-                )?
-                .as_ref()
-                    != Some(choice)
+                let task = step
+                    .task
+                    .clone()
+                    .ok_or_else(|| fail("probe expect_choice requires task"))?;
+                let request = self.prepare(task, &self.model)?;
+                let response = serde_json::to_vec(response)
+                    .map_err(|_| fail("probe response cannot be encoded"))?;
+                if crate::provider::validate_for(cfg, &response, &request)?.as_ref() != Some(choice)
                 {
-                    return Err(invalid());
+                    return Err(fail("probe choice differs from expect_choice"));
                 }
             }
         }
@@ -875,7 +1110,7 @@ impl ProviderDriver for Definition {
             .report
             .evaluate(&json!({"responses":responses,"model":self.model}))?;
         if !report.is_object() {
-            return Err(invalid());
+            return Err(fail("probe report must be an object"));
         }
         Ok(Diagnostic::Complete(report))
     }
@@ -886,6 +1121,18 @@ mod tests {
     use super::*;
     fn task() -> Value {
         json!({"state":{"query":"backend"},"questions":{"destination":{"type":"choice","instructions":"Choose a match.","criteria":{"c1":{"name":"alpha"},"none":"No match"}}}})
+    }
+    fn full_task() -> Value {
+        let mut criteria: Map<String, Value> = (0..254)
+            .map(|i| {
+                (
+                    format!("c{i}"),
+                    json!({"name":format!("synthetic-directory-name-{i:04}"),"parent":format!("/synthetic/projects/workspace/parent-directory-{i:04}/x"),"usage":"low"}),
+                )
+            })
+            .collect();
+        criteria.insert("none".into(), json!("No match"));
+        json!({"state":{"query":"backend","cwd":"src"},"questions":{"destination":{"type":"choice","instructions":"Choose a match.","criteria":criteria}}})
     }
     fn answer(model: &str) -> Value {
         json!({"model":model,"answers":{"destination":{"type":"choice","choice":"c1","probabilities":{"c1":0.9,"none":0.1},"confidence":0.9}}})
@@ -1149,23 +1396,530 @@ mod tests {
     fn response_assertions_share_one_work_budget() {
         let mut w = super::super::wire("jev").clone();
         let check = expr(
-            json!({"op":"eq","left":{"op":"length","input":{"op":"map","input":{"op":"ref","path":"/response/metadata"},"body":{"op":"literal","value":0}}},"right":{"op":"literal","value":100}}),
+            json!({"op":"eq","left":{"op":"length","input":{"op":"map","input":{"op":"ref","path":"/response/metadata"},"body":{"op":"literal","value":0}}},"right":{"op":"literal","value":1000}}),
         );
         w.response_checks = vec![check.clone(); 100];
         w.check().unwrap();
-        let response = json!({"metadata":vec!["x".repeat(128);100]});
+        let response = json!({"metadata":vec!["x".repeat(128);1000]});
         assert_eq!(check.evaluate(&json!({"response":response})).unwrap(), true);
-        assert!(w.decode(response).is_err());
+        w.response_checks.truncate(10);
+        w.decode(response.clone()).unwrap();
+        w.response_checks = vec![check; 100];
+        assert!(is_resource_limit(&w.decode(response).unwrap_err()));
     }
     #[test]
-    fn repeated_large_input_copies_consume_evaluation_budget() {
+    fn evaluation_cost_tracks_output_not_phase_root() {
+        // Binding an item no longer copies the phase root, so unrelated input
+        // size does not multiply per-element cost.
         let tiny = expr(
             json!({"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"literal","value":null}}),
         );
-        assert!(
-            tiny.evaluate(&json!({"a":vec!["x".repeat(128);1024]}))
-                .is_err()
+        tiny.evaluate(&json!({"a":vec!["x".repeat(128);1024]}))
+            .unwrap();
+        let small = expr(
+            json!({"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"ref","path":"/item"}}),
         );
+        assert_eq!(
+            small
+                .evaluate(&json!({"a":[1,2,3],"big":vec!["x".repeat(200);1000]}))
+                .unwrap(),
+            json!([1, 2, 3])
+        );
+        // Copies and per-element work are still charged, so amplification is bounded.
+        for e in [
+            json!({"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"length","input":{"op":"ref","path":"/a"}}}),
+            json!({"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"literal","value":null}}}),
+            json!({"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"filter","input":{"op":"ref","path":"/a"},"condition":{"op":"literal","value":false}}}),
+            json!({"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"index","input":{"op":"ref","path":"/a"},"key":{"op":"text","input":{"op":"ref","path":"/item"}},"value":{"op":"literal","value":null}}}),
+        ] {
+            let a: Vec<_> = (0..1024).map(|i| format!("{i:0128}")).collect();
+            let err = expr(e).evaluate(&json!({ "a": a })).unwrap_err();
+            assert!(is_resource_limit(&err), "{}", err.1);
+        }
+    }
+    #[test]
+    fn composed_sizes_match_serialization() {
+        let v = json!({"a\"\n":["é\u{1}",1.5,-3,u64::MAX,null,true,{}],"b":[[],{"k":"\u{2028}"}]});
+        assert_eq!(
+            measure(&v).unwrap().bytes,
+            serde_json::to_vec(&v).unwrap().len()
+        );
+        let e = expr(
+            json!({"op":"object","fields":{"x\"":{"op":"map","input":{"op":"ref","path":"/a"},"body":{"op":"array","items":[{"op":"ref","path":"/item"},{"op":"literal","value":"\t"}]}},"y":{"op":"index","input":{"op":"ref","path":"/a"},"key":{"op":"text","input":{"op":"ref","path":"/item"}},"value":{"op":"stringify","input":{"op":"ref","path":"/item"}}}}}),
+        );
+        let root = json!({"a":["p","q\"",3]});
+        let (v, size) = e
+            .eval(
+                Env {
+                    root: &root,
+                    item: None,
+                },
+                &mut FUEL.clone(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(size.bytes, serde_json::to_vec(&v).unwrap().len());
+        assert_eq!(size.height, 3);
+    }
+    #[test]
+    fn item_binding_is_innermost_and_other_paths_read_the_root() {
+        let e = expr(
+            json!({"op":"map","input":{"op":"ref","path":"/rows"},"body":{"op":"map","input":{"op":"ref","path":"/item/cells"},"body":{"op":"array","items":[{"op":"ref","path":"/item"},{"op":"ref","path":"/model"},{"op":"ref","path":"/itemx"}]}}}),
+        );
+        assert_eq!(
+            e.evaluate(&json!({"rows":[{"cells":[1,2]},{"cells":[3]}],"model":"m","itemx":0}))
+                .unwrap(),
+            json!([[[1, "m", 0], [2, "m", 0]], [[3, "m", 0]]])
+        );
+        let outside = expr(json!({"op":"ref","path":"/item"}))
+            .evaluate(&json!({"task":{}}))
+            .unwrap_err();
+        assert_eq!(outside.0, 5);
+        assert!(!is_resource_limit(&outside));
+    }
+    #[test]
+    fn shipped_openai_wire_prepares_full_candidate_set() {
+        for id in ["openai", "jev", "clef", "tev1"] {
+            let b = super::super::wire(id)
+                .prepare(full_task(), "synthetic-model")
+                .unwrap();
+            let q = super::super::wire(id)
+                .questions(&serde_json::from_slice(&b).unwrap())
+                .unwrap();
+            assert_eq!(
+                q["destination"]["criteria"].as_object().unwrap().len(),
+                255,
+                "{id}"
+            );
+        }
+    }
+    fn https() -> Definition {
+        Definition {
+            transport: "https".into(),
+            url: "https://example.invalid/decision".into(),
+            auth: Auth::Bearer {
+                env: "TEST_API_KEY".into(),
+            },
+            ..definition()
+        }
+    }
+    fn reason(d: &Definition) -> String {
+        let e = d.validate().unwrap_err();
+        assert_eq!(e.0, 2, "{}", e.1);
+        e.1.strip_prefix("invalid provider definition: ")
+            .unwrap()
+            .to_owned()
+    }
+    #[test]
+    fn definition_failures_are_specific_usage_errors() {
+        let v = serde_json::to_value(definition()).unwrap();
+        let parse = |v: &Value| Definition::parse(&serde_json::to_vec(v).unwrap()).unwrap_err();
+        for (bytes, want) in [
+            (b"{".to_vec(), "not strict JSON or duplicate key"),
+            (
+                br#"{"version":1,"version":1}"#.to_vec(),
+                "not strict JSON or duplicate key",
+            ),
+            (vec![b' '; 32769], "definition exceeds 32 KiB"),
+        ] {
+            let e = Definition::parse(&bytes).unwrap_err();
+            assert_eq!(
+                (e.0, e.1.as_ref()),
+                (2, format!("invalid provider definition: {want}").as_str())
+            );
+        }
+        for (k, x, want) in [
+            ("version", json!(2), "unsupported version"),
+            ("unknown", json!(true), "unknown field `unknown`"),
+            (
+                "id",
+                json!("../jev"),
+                "id must be 1-64 lowercase letters, digits or -",
+            ),
+            ("model", json!("bad\nmodel"), "model must be 1-256 bytes"),
+            (
+                "transport",
+                json!("shell"),
+                "url must be https, or http to 127.0.0.1/[::1]",
+            ),
+            (
+                "url",
+                json!("file:///tmp/test"),
+                "url must be absolute with a host",
+            ),
+            ("limits", json!({"candidates":0}), "limits out of range"),
+            (
+                "response_models",
+                json!(vec!["m"; 17]),
+                "response_models must be at most 16",
+            ),
+        ] {
+            let mut v = v.clone();
+            v[k] = x;
+            let e = parse(&v);
+            assert_eq!(e.0, 2, "{k}");
+            assert!(
+                e.1.starts_with(&format!("invalid provider definition: {want}")),
+                "{k}: {}",
+                e.1
+            );
+        }
+        let mut w = v.clone();
+        w["wire"]["request"] = json!({"op":"shell","command":"whoami"});
+        assert!(parse(&w).1.contains("unknown variant `shell`"));
+        w["wire"]["request"] = json!({"op":"ref","path":"task"});
+        assert!(
+            parse(&w)
+                .1
+                .ends_with("ref path must start with / and be at most 1024 bytes")
+        );
+        let mut deep = json!({"op":"literal","value":true});
+        for _ in 0..33 {
+            deep = json!({"op":"not","input":deep});
+        }
+        w["wire"]["request"] = deep;
+        assert!(
+            parse(&w)
+                .1
+                .ends_with("expression tree exceeds 4096 nodes or depth 32")
+        );
+        w["wire"]["request"] = v["wire"]["request"].clone();
+        w["wire"]["request_shape"] = json!({"kind":"text"});
+        assert!(parse(&w).1.contains("shape kind must be"));
+    }
+    #[test]
+    fn runtime_failures_are_value_free_and_limits_are_recognizable() {
+        let secret = "SYNTHETIC-SECRET-VALUE";
+        let root = json!({"s":secret,"n":{"k":secret}});
+        for e in [
+            json!({"op":"not","input":{"op":"ref","path":"/s"}}),
+            json!({"op":"map","input":{"op":"ref","path":"/n"},"body":{"op":"literal","value":0}}),
+            json!({"op":"ref","path":"/missing"}),
+            json!({"op":"version_at_least","input":{"op":"ref","path":"/s"},"minimum":[1,0,0]}),
+            json!({"op":"index","input":{"op":"array","items":[{"op":"ref","path":"/s"},{"op":"ref","path":"/s"}]},"key":{"op":"ref","path":"/item"},"value":{"op":"literal","value":0}}),
+            json!({"op":"add","left":{"op":"literal","value":u64::MAX},"right":{"op":"literal","value":1}}),
+        ] {
+            let err = expr(e).evaluate(&root).unwrap_err();
+            assert_eq!(err.0, 5);
+            assert!(err.1.starts_with("provider DSL "), "{}", err.1);
+            assert!(
+                !err.1.contains(secret) && !is_resource_limit(&err),
+                "{}",
+                err.1
+            );
+        }
+        let w = super::super::wire("openai");
+        let err = w.decode(json!({"model":secret})).unwrap_err();
+        assert_eq!(err.1, "provider DSL response does not match response_shape");
+        let mut deep = json!(0);
+        for _ in 0..32 {
+            deep = json!([deep]);
+        }
+        let mut fuel = Expr::Literal { value: Value::Null };
+        for _ in 0..4 {
+            fuel = Expr::Map {
+                input: Box::new(Expr::Literal {
+                    value: json!(vec![0; 1024]),
+                }),
+                body: Box::new(fuel),
+            };
+        }
+        for (e, root) in [
+            (
+                Expr::Literal {
+                    value: json!(vec![0; 1025]),
+                },
+                json!({}),
+            ),
+            (
+                Expr::Literal {
+                    value: json!("x".repeat(262145)),
+                },
+                json!({}),
+            ),
+            (
+                Expr::Array {
+                    items: vec![Expr::Literal {
+                        value: deep.clone(),
+                    }],
+                },
+                json!({}),
+            ),
+            (expr(json!({"op":"ref","path":"/d"})), json!({"d":[deep]})),
+            (fuel, json!({})),
+        ] {
+            let err = e.evaluate(&root).unwrap_err();
+            assert_eq!((err.0, err.1.as_ref()), (5, LIMIT));
+            assert!(is_resource_limit(&err));
+        }
+        assert!(!is_resource_limit(&Error(
+            5,
+            "provider response exceeds limit".into()
+        )));
+        assert!(!is_resource_limit(&Error(2, LIMIT.into())));
+    }
+    #[test]
+    fn partial_limits_use_field_defaults() {
+        let mut v = serde_json::to_value(https()).unwrap();
+        v["limits"] = json!({"cache":true});
+        let d = Definition::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
+        assert_eq!(
+            d.limits,
+            Limits {
+                cache: true,
+                ..Limits::default()
+            }
+        );
+        v["limits"] = json!({"candidates":23,"context_bytes":1600});
+        let d = Definition::parse(&serde_json::to_vec(&v).unwrap()).unwrap();
+        assert_eq!((d.limits.candidates, d.limits.body_bytes), (23, 65536));
+        v["limits"] = json!({});
+        assert_eq!(
+            Definition::parse(&serde_json::to_vec(&v).unwrap())
+                .unwrap()
+                .limits,
+            Limits::default()
+        );
+    }
+    #[test]
+    fn serialization_is_compact_and_roundtrips() {
+        let text = serde_json::to_string(&definition()).unwrap();
+        assert!(
+            !text.contains("\"limits\"")
+                && !text.contains("\"extra\"")
+                && !text.contains("\"probe\"")
+        );
+        for text in [
+            include_str!("../../examples/providers/openrouter-jev.json"),
+            include_str!("../../examples/providers/vercel-openai.json"),
+            include_str!("../../examples/providers/local-tev1.json"),
+            include_str!("../../examples/providers/openrouter-microsoft.json"),
+            include_str!("../../examples/providers/openrouter-openai.json"),
+            include_str!("../../examples/providers/openrouter-clef.json"),
+        ] {
+            let d = Definition::parse(text.as_bytes()).unwrap();
+            let minified =
+                serde_json::to_vec(&serde_json::from_str::<Value>(text).unwrap()).unwrap();
+            let b = serde_json::to_vec(&d).unwrap();
+            assert!(
+                b.len() <= minified.len(),
+                "{} > {}",
+                b.len(),
+                minified.len()
+            );
+            assert_eq!(serde_json::from_slice::<Definition>(&b).unwrap(), d);
+        }
+        for text in [
+            include_str!("definitions/jev.json"),
+            include_str!("definitions/clef.json"),
+            include_str!("definitions/openai.json"),
+            include_str!("definitions/tev1.json"),
+        ] {
+            let w: Wire = serde_json::from_str(text).unwrap();
+            let minified =
+                serde_json::to_vec(&serde_json::from_str::<Value>(text).unwrap()).unwrap();
+            let b = serde_json::to_vec(&w).unwrap();
+            assert!(b.len() <= minified.len());
+            assert_eq!(serde_json::from_slice::<Wire>(&b).unwrap(), w);
+        }
+        let mut d = definition();
+        d.limits = Limits {
+            candidates: 23,
+            body_bytes: 4096,
+            context_bytes: Some(1600),
+            diverse: true,
+            cache: false,
+        };
+        d.response_models = vec!["alias".into()];
+        let b = serde_json::to_vec(&d).unwrap();
+        assert_eq!(serde_json::from_slice::<Definition>(&b).unwrap(), d);
+        // The size limit binds both the source bytes and the compact form.
+        d.wire.response = Expr::Object {
+            fields: (0..800)
+                .map(|i| (format!("field{i}"), Expr::Literal { value: Value::Null }))
+                .collect(),
+        };
+        assert_eq!(reason(&d), "definition exceeds 32 KiB");
+        let mut padded = serde_json::to_vec_pretty(&definition()).unwrap();
+        padded.resize(32769, b' ');
+        assert_eq!(
+            Definition::parse(&padded).unwrap_err().1,
+            "invalid provider definition: definition exceeds 32 KiB"
+        );
+    }
+    #[test]
+    fn shape_keywords_must_apply_to_their_kind() {
+        let check = |v: Value| {
+            serde_json::from_value::<Shape>(v)
+                .unwrap()
+                .definition_check(0)
+        };
+        for v in [
+            json!({"kind":"uint","min":1}),
+            json!({"max":3}),
+            json!({"kind":"boolean","min":0,"max":1}),
+            json!({"kind":"array","properties":{"a":{}}}),
+            json!({"kind":"string","required":["a"]}),
+            json!({"kind":"array","values":{}}),
+            json!({"extra":true}),
+            json!({"kind":"object","items":{}}),
+            json!({"kind":"string","items":{}}),
+            json!({"kind":"object","values":{},"extra":true}),
+            json!({"kind":"object","any":[{}]}),
+            json!({"choices":[1],"any":[{}]}),
+            json!({"min":1,"any":[{"kind":"string"}]}),
+            json!({"any":[{"kind":"string","items":{}}]}),
+            json!({"kind":"object","properties":{"a":{"kind":"null","max":1}}}),
+        ] {
+            let e = check(v.clone()).unwrap_err();
+            assert_eq!(e.0, 2, "{v}");
+            assert!(
+                e.1.starts_with("invalid provider definition: shape "),
+                "{v}"
+            );
+        }
+        for v in [
+            json!({}),
+            json!({"kind":"string","min":1,"max":3,"choices":["ab"]}),
+            json!({"kind":"array","min":1,"items":{"kind":"uint"}}),
+            json!({"kind":"object","max":2,"required":["a"],"properties":{"a":{}},"values":{"kind":"null"}}),
+            json!({"kind":"object","extra":true}),
+            json!({"kind":"","any":[{"kind":"null"},{"kind":"array","max":0}]}),
+            json!({"kind":"uint","choices":[1,2]}),
+        ] {
+            check(v.clone()).unwrap_or_else(|e| panic!("{v}: {}", e.1));
+        }
+    }
+    #[test]
+    fn probe_paths_reject_whitespace_controls_and_other_origins() {
+        let mut d = definition();
+        d.probe = Some(Probe {
+            steps: vec![ProbeStep {
+                path: "/api/version".into(),
+                task: None,
+                expect_choice: None,
+                checks: vec![],
+            }],
+            report: Expr::Literal { value: json!({}) },
+        });
+        d.validate().unwrap();
+        for path in [
+            "/\t/remote.invalid",
+            "/\n/remote.invalid",
+            "/\r/remote.invalid",
+            "/api version",
+            "/api\u{7f}",
+            "/api\u{0}",
+            "/api\u{85}",
+            "/api\u{3000}",
+            "api/version",
+        ] {
+            d.probe.as_mut().unwrap().steps[0].path = path.into();
+            assert!(
+                reason(&d).starts_with("probe step path must be a same-origin"),
+                "{path:?}"
+            );
+        }
+        d.probe.as_mut().unwrap().steps[0].path = "/api/%20tags".into();
+        d.validate().unwrap();
+    }
+    #[test]
+    fn auth_header_rejects_framing_hop_by_hop_and_long_names() {
+        let mut d = https();
+        for name in [
+            "te",
+            "Trailer",
+            "upgrade",
+            "keep-alive",
+            "proxy-connection",
+            "proxy-authenticate",
+            "expect",
+            "host",
+            "content-type",
+        ] {
+            d.auth = Auth::Header {
+                env: "TEST_API_KEY".into(),
+                name: name.into(),
+            };
+            assert_eq!(
+                reason(&d),
+                "auth header name is reserved for transport",
+                "{name}"
+            );
+        }
+        for (name, ok) in [
+            ("x".repeat(64), true),
+            ("x".repeat(65), false),
+            ("bad header".into(), false),
+        ] {
+            d.auth = Auth::Header {
+                env: "TEST_API_KEY".into(),
+                name,
+            };
+            assert_eq!(d.validate().is_ok(), ok);
+        }
+    }
+    #[test]
+    fn version_prereleases_rank_below_their_release() {
+        let at_least = |v: &str| {
+            expr(json!({"op":"version_at_least","input":{"op":"literal","value":v},"minimum":[0,35,0]}))
+                .evaluate(&json!({}))
+                .map(|v| v == true)
+        };
+        for (v, want) in [
+            ("0.35.0", true),
+            ("0.35.0+build.7", true),
+            ("0.35.0-rc1", false),
+            ("0.35.0-rc.1+build", false),
+            ("0.35.1-rc1", true),
+            ("0.36.0-rc1", true),
+            ("1.0.0", true),
+            ("0.34.99", false),
+            ("0.34.9-rc1", false),
+        ] {
+            assert_eq!(at_least(v).unwrap(), want, "{v}");
+        }
+        for v in [
+            "0.35", "0.35.0.1", "0.35.0-", "0.35.0+", "v0.35.0", "garbage", "",
+        ] {
+            assert!(at_least(v).is_err(), "{v}");
+        }
+    }
+    #[test]
+    fn builtin_credential_variables_are_reserved() {
+        let reserved: Vec<&str> = DRIVERS
+            .iter()
+            .filter_map(|d| d.descriptor().credential.as_ref())
+            .flat_map(|c| c.env.iter().copied())
+            .collect();
+        for env in [
+            "TYPESAFE_API_KEY",
+            "OPENAI_API_KEY",
+            "CLOUDFLARE_AUTH_TOKEN",
+            "CLOUDFLARE_API_TOKEN",
+        ] {
+            assert!(reserved.contains(&env));
+        }
+        let mut d = https();
+        for env in reserved {
+            for auth in [
+                Auth::Bearer { env: env.into() },
+                Auth::Header {
+                    env: env.into(),
+                    name: "x-api-key".into(),
+                },
+            ] {
+                d.auth = auth;
+                assert_eq!(
+                    reason(&d),
+                    "credential variable reserved for built-in provider"
+                );
+            }
+        }
+        d.auth = Auth::Bearer {
+            env: "OPENROUTER_API_KEY".into(),
+        };
+        d.validate().unwrap();
     }
     #[test]
     fn shape_validates_nested_keys_types_bounds_and_overflow() {

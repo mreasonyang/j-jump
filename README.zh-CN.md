@@ -80,6 +80,8 @@ curl -fsSL https://raw.githubusercontent.com/mreasonyang/j-jump/main/install.sh 
 - 默认的 `strict` 隐私模式只发送查询词和候选目录名。文件内容、Git 远程地址、环境变量、Shell 历史和 Key 永远不会发送。用 `jjump preview "my cv"` 可以查看完整请求。
 - 敏感目录可以加入 `no_send`（本地可搜索，但不发送）或 `exclude`（完全不记录）。
 
+其他决策 API（例如 OpenRouter、Vercel 网关或其他本机运行时）可以导入经过审阅的 JSON 定义，见 [DSL 自定义 API](docs/CONFIGURATION-AND-HELP.md#dsl-自定义-api0043-起)。
+
 不用向导的配置方法、各隐私级别和全部设置项，见[配置、帮助与恢复](docs/CONFIGURATION-AND-HELP.md)。
 
 ## 常见问题

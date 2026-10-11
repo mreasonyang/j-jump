@@ -9,6 +9,8 @@ use std::{
 };
 
 pub const CANDIDATE_LIMIT_MAX: usize = 254;
+pub const INVALID_SAVED_DEFINITION: &str = "saved custom API definition is invalid for this version; replace it: jjump config import-provider FILE, or remove it: jjump config remove-provider";
+pub const MISSING_DEFINITION: &str = "import a definition first: jjump config import-provider FILE";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Provider(&'static str);
@@ -82,6 +84,9 @@ pub struct Config {
     pub providers: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_definition: Option<crate::providers::dsl::Definition>,
+    /// A saved definition this version rejects, kept verbatim until replaced or removed.
+    #[serde(skip)]
+    pub rejected_definition: Option<serde_json::Value>,
     pub tracking: bool,
     pub semantic: bool,
     pub consent: String,
@@ -103,6 +108,7 @@ impl Default for Config {
             cloudflare_credential: environment_source(),
             providers: Default::default(),
             api_definition: None,
+            rejected_definition: None,
             tracking: true,
             semantic: false,
             consent: "ask".into(),
@@ -161,6 +167,14 @@ impl Paths {
         })
     }
     pub fn load(&self) -> Result<Config> {
+        self.read(false)
+    }
+    /// Load for definition repair: a custom selection without a definition is
+    /// accepted so it can be replaced or removed.
+    pub fn load_for_repair(&self) -> Result<Config> {
+        self.read(true)
+    }
+    fn read(&self, repair: bool) -> Result<Config> {
         let dir = self
             .config
             .parent()
@@ -187,13 +201,32 @@ impl Paths {
             Err(e) => return Err(e),
         };
         private_dir(dir)?;
-        let config: Config = serde_json::from_slice(&bytes).map_err(|_| {
+        let invalid = || {
             Error(
                 7,
                 "invalid configuration; run doctor or config recover; tracking stopped".into(),
             )
-        })?;
-        config.validate()?;
+        };
+        // The definition is checked separately: an outdated one must not hide
+        // the rest of the configuration from local navigation and repair.
+        let TopLevel(mut fields) = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        let saved = fields.remove("api_definition").filter(|v| !v.is_null());
+        let mut config: Config =
+            serde_json::from_value(serde_json::Value::Object(fields)).map_err(|_| invalid())?;
+        if let Some(raw) = saved {
+            match serde_json::to_vec(&raw)
+                .ok()
+                .and_then(|b| crate::providers::dsl::Definition::parse(&b).ok())
+            {
+                Some(d) => config.api_definition = Some(d),
+                None => config.rejected_definition = Some(raw),
+            }
+        }
+        if repair {
+            config.validate_fields()?;
+        } else {
+            config.validate()?;
+        }
         Ok(config)
     }
     pub fn save(&self, config: &Config, expected: &str) -> Result<()> {
@@ -212,8 +245,14 @@ impl Paths {
                 "configuration changed concurrently; restart setup".into(),
             ));
         }
-        let bytes = serde_json::to_vec_pretty(config)
-            .map_err(|_| Error(7, "cannot encode configuration".into()))?;
+        let bytes = match (&config.api_definition, &config.rejected_definition) {
+            (None, Some(raw)) => serde_json::to_value(config).and_then(|mut v| {
+                v["api_definition"] = raw.clone();
+                serde_json::to_vec_pretty(&v)
+            }),
+            _ => serde_json::to_vec_pretty(config),
+        }
+        .map_err(|_| Error(7, "cannot encode configuration".into()))?;
         if bytes.len() > 65536 {
             return Err(Error(
                 7,
@@ -332,6 +371,32 @@ impl Paths {
         }
     }
 }
+/// Top-level configuration fields, rejecting duplicate keys as typed parsing does.
+struct TopLevel(serde_json::Map<String, serde_json::Value>);
+impl<'de> Deserialize<'de> for TopLevel {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = TopLevel;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("configuration object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut a: A,
+            ) -> std::result::Result<TopLevel, A::Error> {
+                let mut m = serde_json::Map::new();
+                while let Some((k, v)) = a.next_entry::<String, serde_json::Value>()? {
+                    if m.insert(k, v).is_some() {
+                        return Err(serde::de::Error::custom("duplicate field"));
+                    }
+                }
+                Ok(TopLevel(m))
+            }
+        }
+        d.deserialize_map(V)
+    }
+}
 pub struct Policy {
     roots: Vec<PathBuf>,
     home: Option<PathBuf>,
@@ -376,12 +441,35 @@ impl Policy {
 
 impl Config {
     pub fn driver(&self) -> &dyn crate::providers::ProviderDriver {
-        if self.provider.id() == "dsl"
-            && let Some(d) = &self.api_definition
-        {
-            return d;
+        if self.provider.id() == "dsl" {
+            if let Some(d) = &self.api_definition {
+                return d;
+            }
+            if self.rejected_definition.is_some() {
+                return &crate::providers::REJECTED;
+            }
         }
         self.provider.driver()
+    }
+    /// Provider use of a custom selection needs a usable imported definition.
+    pub fn require_definition(&self) -> Result<()> {
+        if self.provider.id() != "dsl" || self.api_definition.is_some() {
+            return Ok(());
+        }
+        Err(if self.rejected_definition.is_some() {
+            Error(7, INVALID_SAVED_DEFINITION.into())
+        } else {
+            Error(2, MISSING_DEFINITION.into())
+        })
+    }
+    /// Whether an explicit provider-check has a local plan to run.
+    pub fn has_local_check(&self) -> bool {
+        self.is_local()
+            && (self.provider.id() != "dsl"
+                || self
+                    .api_definition
+                    .as_ref()
+                    .is_some_and(|d| d.probe.is_some()))
     }
     pub fn is_local(&self) -> bool {
         self.driver()
@@ -425,14 +513,20 @@ impl Config {
         }
     }
     pub fn validate(&self) -> Result<()> {
-        if let Some(d) = &self.api_definition {
-            d.validate()?;
-        }
-        if self.provider.id() == "dsl" && self.api_definition.is_none() {
+        if self.provider.id() == "dsl"
+            && self.api_definition.is_none()
+            && self.rejected_definition.is_none()
+        {
             return Err(Error(
                 7,
-                "DSL provider requires an imported definition".into(),
+                "custom API is selected without a definition; import one: jjump config import-provider FILE, or remove the selection: jjump config remove-provider".into(),
             ));
+        }
+        self.validate_fields()
+    }
+    fn validate_fields(&self) -> Result<()> {
+        if let Some(d) = &self.api_definition {
+            d.validate()?;
         }
 
         crate::providers::validate_settings(self).map_err(|_| {
@@ -578,4 +672,103 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::remove_file(temp);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn paths() -> (tempfile::TempDir, Paths) {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().canonicalize().unwrap();
+        let paths = Paths {
+            config: home.join("config/config.json"),
+            data: home.join("data"),
+            cache: home.join("cache"),
+            home,
+        };
+        (temp, paths)
+    }
+    fn saved(paths: &Paths, provider: &str, header: &str) {
+        let d = crate::providers::dsl::Definition::parse(
+            include_str!("../examples/providers/openrouter-jev.json").as_bytes(),
+        )
+        .unwrap();
+        let cfg = Config {
+            provider: Provider::parse("dsl").unwrap(),
+            api_definition: Some(d),
+            ..Config::default()
+        };
+        paths.save(&cfg, &paths.fingerprint().unwrap()).unwrap();
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&fs::read(&paths.config).unwrap()).unwrap();
+        v["provider"] = provider.into();
+        v["api_definition"]["auth"] =
+            serde_json::json!({"type":"header","name":header,"env":"SYNTHETIC_KEY"});
+        atomic_write(&paths.config, &serde_json::to_vec(&v).unwrap()).unwrap();
+    }
+    #[test]
+    fn rejected_definition_keeps_local_state_usable_and_is_preserved() {
+        let (_t, paths) = paths();
+        saved(&paths, "jev", "content-type");
+        let mut cfg = paths.load().unwrap();
+        assert!(cfg.api_definition.is_none() && cfg.rejected_definition.is_some());
+        assert_eq!(cfg.driver().descriptor().id, "jev");
+        cfg.require_definition().unwrap();
+        let mut dsl = cfg.clone();
+        let e = crate::providers::select(&mut dsl, Provider::parse("dsl").unwrap()).unwrap_err();
+        assert_eq!((e.0, e.1.as_ref()), (7, INVALID_SAVED_DEFINITION));
+        cfg.semantic = true;
+        paths.save(&cfg, &paths.fingerprint().unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_slice(&fs::read(&paths.config).unwrap()).unwrap();
+        assert_eq!(v["api_definition"]["auth"]["name"], "content-type");
+        assert!(paths.load().unwrap().semantic);
+    }
+    #[test]
+    fn selected_rejected_definition_refuses_provider_use_with_remedy() {
+        let (_t, paths) = paths();
+        saved(&paths, "dsl", "content-type");
+        let cfg = paths.load().unwrap();
+        let e = cfg.require_definition().unwrap_err();
+        assert_eq!((e.0, e.1.as_ref()), (7, INVALID_SAVED_DEFINITION));
+        let e = cfg.driver().connection(&cfg, None).err().unwrap();
+        assert_eq!(e.0, 7);
+        assert!(!cfg.needs_credentials() && !cfg.is_local());
+        saved(&paths, "dsl", "x-api-key");
+        paths.load().unwrap().require_definition().unwrap();
+    }
+    #[test]
+    fn missing_definition_is_refused_except_for_repair_and_selection_needs_import() {
+        let (_t, paths) = paths();
+        paths.save(&Config::default(), "absent").unwrap();
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&fs::read(&paths.config).unwrap()).unwrap();
+        v["provider"] = "dsl".into();
+        atomic_write(&paths.config, &serde_json::to_vec(&v).unwrap()).unwrap();
+        let e = paths.load().unwrap_err();
+        assert!(e.1.contains("jjump config remove-provider"), "{}", e.1);
+        assert_eq!(paths.load_for_repair().unwrap().provider.id(), "dsl");
+        let mut cfg = Config::default();
+        let e = crate::providers::select(&mut cfg, Provider::parse("dsl").unwrap()).unwrap_err();
+        assert_eq!((e.0, e.1.as_ref()), (2, MISSING_DEFINITION));
+    }
+    #[test]
+    fn duplicate_top_level_fields_remain_invalid() {
+        let (_t, paths) = paths();
+        paths.save(&Config::default(), "absent").unwrap();
+        let text = String::from_utf8(fs::read(&paths.config).unwrap()).unwrap();
+        let text = text.replacen(
+            "\"tracking\": true",
+            "\"tracking\": true, \"tracking\": false",
+            1,
+        );
+        atomic_write(&paths.config, text.as_bytes()).unwrap();
+        assert!(
+            paths
+                .load()
+                .unwrap_err()
+                .1
+                .contains("invalid configuration")
+        );
+    }
 }

@@ -95,7 +95,7 @@ recover 不修复历史库，也无法替换被安全策略拒绝的符号链接
 
 默认从 LC_ALL、LC_MESSAGES、LANG 选择中/英文，未知 locale 用英文。`language=auto/en/zh` 为持久偏好，J_JUMP_LANG 覆盖它。核心引导/帮助/诊断与常见错误提供双语信息；技术键名、命令、稳定错误码、JSON和查询不翻译。Jev等待文案保持英文。NO_COLOR 下不依赖颜色；编号界面是逐行文本。
 
-开发期只接受当前完整格式：配置 schema 3、访问库 schema 4、备份 schema 3、语义状态 schema 4。配置 schema 3 包含默认值字段 provider、cloudflare_account_id、cloudflare_credential，以及经过注册表校验的 providers 设置组，原有完整 schema 3 配置可直接读取，默认仍为 Jev；不重写用户配置。旧格式被拒绝且保持原样；不自动转换/迁移，也不提供旧版降级路径。需要独立文件状态时显式指定绝对路径 J_JUMP_HOME；它只重定向配置、访问库和缓存，不隔离系统凭证。所有文件 profile 按服务商共用当前 OS 用户的凭证项：Jev 为 `j-jump.jev` / `typesafe-api-key`，Cloudflare 为 `j-jump.cloudflare` / `workers-ai-api-token`，OpenAI 为 `j-jump.openai` / `openai-api-key`；凭证测试还须隔离 OS 服务。Linux 使用 XDG 路径，macOS 使用 Application Support/Caches；配置优先级为 `--config`、J_JUMP_CONFIG、默认路径，不读取工作目录中的项目配置。
+开发期只接受当前完整格式：配置 schema 3、访问库 schema 4、备份 schema 3、语义状态 schema 4。配置 schema 3 包含默认值字段 provider、cloudflare_account_id、cloudflare_credential，以及经过注册表校验的 providers 设置组和可选的 api_definition（导入的 DSL 定义），原有完整 schema 3 配置可直接读取，默认仍为 Jev；不重写用户配置。旧格式被拒绝且保持原样；不自动转换/迁移，也不提供旧版降级路径。需要独立文件状态时显式指定绝对路径 J_JUMP_HOME；它只重定向配置、访问库和缓存，不隔离系统凭证。所有文件 profile 按服务商共用当前 OS 用户的凭证项：Jev 为 `j-jump.jev` / `typesafe-api-key`，Cloudflare 为 `j-jump.cloudflare` / `workers-ai-api-token`，OpenAI 为 `j-jump.openai` / `openai-api-key`；凭证测试还须隔离 OS 服务。Linux 使用 XDG 路径，macOS 使用 Application Support/Caches；配置优先级为 `--config`、J_JUMP_CONFIG、默认路径，不读取工作目录中的项目配置。
 
 系统凭证、锁定/拒绝提示、完整平台覆盖、真实 Jev 质量及新手理解均须分别验收。见 [平台与发布范围](RELEASE.md)，不把系统凭证夹具或某个版本的测试泛化为全部环境通过。
 
@@ -175,7 +175,10 @@ setup、doctor 不发送请求，也不验证账号权限；本地导航不需�
 ## DSL 自定义 API（0.0.43 起）
 
 新增 JSON API 可通过声明式定义接入，无需新增 Rust provider。内置 Jev、Clef、OpenAI、Tev 的请求与响应转换
-也使用同一个 DSL 引擎；原有名称、设置和凭据保持可用。定义是受信任配置，导入前检查接口地址与转换内容。
+也使用同一个 DSL 引擎；原有名称、设置和凭据保持可用。定义是受信任配置，导入前检查接口地址、凭据环境变量与转换内容。
+导入时会显示定义 ID、接口、传输方式和将读取的凭据变量；之后 `config show` 会再次显示，`credential status` 与 `doctor` 会给出凭据变量名，
+请求许可提示会显示接口主机。`config show --json` 与 `doctor --json` 的 `provider_definition` 为 `ok`、`invalid` 或 `none`。
+自定义定义不能使用内置服务的变量（如 `TYPESAFE_API_KEY`、`OPENAI_API_KEY`），避免把其他服务的 Key 发给自定义接口。
 
 ```sh
 jjump config provider-example openrouter-jev > provider.json
@@ -185,18 +188,21 @@ jjump config set semantic on
 jjump preview backend
 ```
 
-可导出的示例还有 `openrouter-microsoft`、`openrouter-openai`、`openrouter-clef`、`vercel-openai`（使用 `AI_GATEWAY_API_KEY`）和 `local-tev1`。示例经过合成数据测试，尚未验证
+可导出的示例还有 `openrouter-microsoft`、`openrouter-openai`、`openrouter-clef`（均使用 `OPENROUTER_API_KEY`）、`vercel-openai`（使用 `AI_GATEWAY_API_KEY`）和 `local-tev1`。示例经过合成数据测试，尚未验证
 真实账号权限或模型质量。完整定义见 [examples/providers](../examples/providers/)，字段与操作参考
 [英文 DSL 文档](CONFIGURATION.md#declarative-apis-0043)。不同协议需要对应的请求、响应与问题还原转换，不能仅改 URL。
 
-导入在离线完成校验后，复制定义到配置并选择 `dsl`；随后可删除源文件。只有一个自定义槽位，再次导入会替换它。
-切换至内置 provider 会保留自定义定义。导入保留 semantic、consent、privacy 设置，将自定义凭据来源设为 environment，
-不会改写或删除系统 Key。系统凭据按 `j-jump.dsl.定义ID` 隔离；相同定义 ID 的多个配置共享该项，环境变量优先。
+导入在离线完成校验后，复制定义到配置并选择 `dsl`；随后可删除源文件。只有一个自定义槽位，再次导入会替换它，
+`jjump config remove-provider` 会清除它。切换至内置 provider 会保留自定义定义。导入保留 semantic、consent、privacy 设置；
+导入不同定义时将自定义凭据来源设为 environment，重新导入相同定义则保持不变。导入不会改写或删除系统 Key；如需删除已保存的
+自定义 Key，请在移除或替换定义前运行 `jjump credential delete`。定义文件无效时退出码为 2，并说明未通过的规则。已保存的定义
+若不再符合当前规则，本地跳转仍可使用，语义相关命令会给出处理办法：导入修正后的文件，或运行 `jjump config remove-provider`。系统凭据按 `j-jump.dsl.定义ID` 隔离；相同定义 ID 的多个配置共享该项，环境变量优先。
 
 DSL 支持 JSON 构造、映射、过滤、唯一索引、序列化、条件、断言和受限版本比较；不提供 shell、文件、环境读取或
 任意脚本执行。凭据仅在传输层解析，表达式无法访问。云端只允许 HTTPS，本机仅允许数字 loopback HTTP，直连且不携带
 凭据；所有接口禁用重定向。核心继续执行隐私过滤、候选绑定、模型匹配、概率校验、弃权和显式选择。缓存、熔断与后台
-请求都绑定具体定义版本。定义最多 32 KiB，递归、集合、计算量和请求体均受限。
+请求都绑定具体定义版本。定义最多 32 KiB；配置文件以缩进格式保存定义，整体须小于 64 KiB。`limits` 中每个字段均可省略。递归、集合、计算量和
+请求体均受限；候选裁剪遇到计算上限时按“过大”处理并继续缩小。
 
 本机 `local-tev1` 示例保留 23 个候选、1600 字节上下文预算、不缓存响应，并声明版本检查、GGUF 标签检查及合成请求。
 只有显式 `jjump provider-check` 执行这些诊断，总期限 10 秒；导入、setup、doctor 和 preview 不自动请求。Ollama 安装、

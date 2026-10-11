@@ -6,6 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 
+import test_0032_ux as ux
 import test_0036_first_use as first
 import test_tev1 as local
 
@@ -25,6 +26,7 @@ class ProviderDSL(unittest.TestCase):
     profile = first.FirstUse.profile
     cli = local.Tev1.cli
     shell = local.Tev1.shell
+    process = ux.UXTasks.process
 
     @contextlib.contextmanager
     def server(self, outcome='ok'):
@@ -49,9 +51,14 @@ class ProviderDSL(unittest.TestCase):
                     self.end_headers()
                     return
                 criteria = value['payload']['questions']['destination']['criteria']
-                choice = next(k for k in criteria if k != 'none')
+                # Other recorded directories (such as the cwd) may also be offered.
+                choice = next((k for k, v in criteria.items() if isinstance(v, dict) and v.get('name') == 'api-project'),
+                              next(k for k in criteria if k != 'none'))
                 if outcome == 'none': choice = 'none'
                 if outcome == 'unknown': choice = 'forged'
+                if outcome == 'refusal':
+                    self.reply({'result': {'model': value['model'], 'answers': {'destination': {'type': 'refusal'}}}})
+                    return
                 self.reply({'result': {'model': 'wrong' if outcome == 'model' else value['model'],
                            'answers': {'destination': {'type': 'choice', 'choice': choice,
                            'confidence': .9, 'probabilities': {k: float(k == choice) for k in criteria}}}}})
@@ -114,7 +121,7 @@ class ProviderDSL(unittest.TestCase):
             before = self.config.read_bytes()
             for key, value in [('version', 99), ('url', 'http://example.invalid/api'), ('id', '../jev'), ('unknown', True)]:
                 invalid = dict(d, **{key: value})
-                self.import_definition(invalid, code=5)
+                self.import_definition(invalid, code=2)
                 self.assertEqual(self.config.read_bytes(), before)
             self.assertEqual(requests, [])
 
@@ -150,12 +157,12 @@ class ProviderDSL(unittest.TestCase):
                 self.assertNotIn(str(self.home), json.dumps(requests))
 
     def test_invalid_answers_refusal_and_redirect_never_offer_navigation(self):
-        for outcome in ('none', 'unknown', 'model', 'redirect'):
+        for outcome in ('none', 'refusal', 'unknown', 'model', 'redirect'):
             with self.subTest(outcome=outcome), self.server(outcome) as (url, requests):
                 self.profile(outcome)
                 self.configure(url)
                 with self.shell('bash') as t:
-                    t.send('ji backend\r'); t.until(b'J3:' if outcome == 'none' else b'J5:', seconds=8)
+                    t.send('ji backend\r'); t.until(b'J3:' if outcome in ('none', 'refusal') else b'J5:', seconds=8)
                     self.assertNotIn(b'Empty/q: cancel', t.output)
                     t.cmd('printf "STILL:%s\\n" "$PWD"', 'DONE')
                     self.assertIn(('STILL:' + str(self.cwd)).encode(), t.output)
@@ -199,3 +206,119 @@ class ProviderDSL(unittest.TestCase):
         doctor = self.cli('doctor').stdout
         self.assertIn(b'API connection: not tested here.', doctor)
         self.assertNotIn(b'Local service and model:', doctor)
+
+    def corrupt(self, **change):
+        saved = json.loads(self.config.read_text())
+        saved['api_definition']['wire']['response'] = {'op': 'removed-in-this-version'}
+        saved.update(change)
+        self.config.write_text(json.dumps(saved))
+
+    def test_invalid_saved_definition_never_blocks_builtin_navigation_and_is_repairable(self):
+        with self.server() as (url, requests):
+            self.import_definition(self.definition(url))
+            self.cli('config', 'set', 'provider', 'jev')
+            self.corrupt()
+            self.cli('record', '--', self.target, cwd=self.target)
+            self.assertEqual(self.cli('query', 'alpha').stdout.strip(), str(self.target).encode())
+            self.cli('config', 'show')
+            self.cli('config', 'set', 'semantic', 'on')
+            self.assertIn('removed-in-this-version', self.config.read_text())
+            doctor = self.cli('doctor')
+            self.assertIn(b'Saved custom API definition: invalid', doctor.stdout)
+            self.assertIn(b'jjump config remove-provider', doctor.stdout)
+            self.assertEqual(json.loads(self.cli('doctor', '--json').stdout)['provider_definition'], 'invalid')
+            refused = self.cli('config', 'set', 'provider', 'dsl', code=7)
+            self.assertIn(b'saved custom API definition is invalid for this version', refused.stderr)
+            imported = self.import_definition(self.definition(url))
+            self.assertIn(b'Replaced the invalid saved definition.', imported.stdout)
+            self.assertEqual(json.loads(self.cli('doctor', '--json').stdout)['provider_definition'], 'ok')
+            self.cli('config', 'set', 'provider', 'jev')
+            self.corrupt()
+            removed = self.cli('config', 'remove-provider')
+            self.assertIn(b'Removed the invalid saved custom API definition.', removed.stdout)
+            self.assertIn(b'not accessed or changed', removed.stdout)
+            saved = json.loads(self.config.read_text())
+            self.assertNotIn('api_definition', saved)
+            self.assertEqual((saved['provider'], saved['semantic']), ('jev', True))
+            self.assertEqual(requests, [])
+
+    def test_invalid_selected_definition_refuses_provider_use_with_remedy(self):
+        with self.server() as (url, requests):
+            self.configure(url)
+            self.cli('record', '--', self.target, cwd=self.target)
+            self.corrupt()
+            self.assertEqual(self.cli('--offline', 'query', 'alpha').stdout.strip(), str(self.target).encode())
+            self.assertEqual(self.cli('query', 'alpha').stdout.strip(), str(self.target).encode())
+            for args in [('preview', 'backend'), ('provider-check',), ('credential', 'delete')]:
+                result = self.cli(*args, code=7)
+                self.assertIn(b'jjump config remove-provider', result.stderr)
+            doctor = self.cli('doctor', code=7)
+            self.assertIn(b'replace it: jjump config import-provider FILE, or remove it: jjump config remove-provider', doctor.stdout)
+            self.assertNotIn(b'config recover', doctor.stdout)
+            removed = self.cli('config', 'remove-provider')
+            self.assertIn(b'provider: dsl -> jev\nsemantic: on -> off', removed.stdout)
+            self.assertIn(b'OS credential entries', removed.stdout)
+            self.cli('doctor')
+            saved = json.loads(self.config.read_text())
+            self.assertEqual((saved['provider'], saved['semantic'], 'api_definition' in saved), ('jev', False, False))
+            self.assertEqual(requests, [])
+
+    def test_missing_definition_selection_is_input_error_and_setup_reprompts(self):
+        result = self.cli('config', 'set', 'provider', 'dsl', code=2)
+        self.assertIn(b'import a definition first: jjump config import-provider FILE', result.stderr)
+        self.assertFalse(self.config.exists())
+        with self.process('setup') as t:
+            t.until(b'Semantic provider'); t.send('dsl\n')
+            t.until(b'import a definition first'); t.send('off\n')
+            t.until(b'Local visit tracking')
+            self.assertGreaterEqual(t.output.count(b'Semantic provider ['), 2)
+            t.send('q\n'); t.cancelled()
+        self.assertFalse(self.config.exists())
+
+    def test_import_summary_credential_variable_and_identity_preserving_source(self):
+        jev = json.loads(self.cli('config', 'provider-example', 'openrouter-jev').stdout)
+        out = self.import_definition(jev).stdout
+        for line in [b'Definition: openrouter-jev', b'Endpoint: ' + jev['url'].encode(), b'Transport: https',
+                     b'Authentication: bearer token from $OPENROUTER_API_KEY', b'no request sent']:
+            self.assertIn(line, out)
+        self.assertNotIn(b'Replaced definition', out)
+        self.assertEqual(json.loads(self.cli('credential', 'status').stdout)['environment_variable'], 'OPENROUTER_API_KEY')
+        show = self.cli('config', 'show').stdout
+        self.assertIn(b'Endpoint: ' + jev['url'].encode(), show)
+        self.assertIn(b'$OPENROUTER_API_KEY', show)
+        self.cli('config', 'set', 'semantic', 'on')
+        self.assertIn(b'Set $OPENROUTER_API_KEY or run jjump credential set', self.cli('doctor').stdout)
+        saved = json.loads(self.config.read_text())
+        saved['providers']['dsl']['credential'] = 'system'
+        self.config.write_text(json.dumps(saved))
+        self.import_definition(jev)
+        self.assertEqual(json.loads(self.config.read_text())['providers']['dsl']['credential'], 'system')
+        vercel = json.loads(self.cli('config', 'provider-example', 'vercel-openai').stdout)
+        vercel['auth'] = {'type': 'header', 'name': 'x-api-key', 'env': 'AI_GATEWAY_API_KEY'}
+        out = self.import_definition(vercel).stdout
+        self.assertIn(b'Replaced definition openrouter-jev', out)
+        self.assertIn(b'Authentication: header x-api-key from $AI_GATEWAY_API_KEY', out)
+        self.assertEqual(json.loads(self.config.read_text())['providers']['dsl']['credential'], 'environment')
+
+    def test_provider_check_is_suggested_only_with_a_probe_plan(self):
+        with self.server() as (url, _):
+            self.configure(url)
+            self.assertIn(b'Run jjump provider-check explicitly', self.cli('doctor').stdout)
+            d = self.definition(url)
+            del d['probe']
+            self.import_definition(d)
+            doctor = self.cli('doctor').stdout
+            self.assertNotIn(b'Run jjump provider-check', doctor)
+            self.assertIn(b'no provider-check plan', doctor)
+
+    def test_consent_names_the_custom_endpoint_host(self):
+        with self.server() as (url, requests):
+            self.configure(url)
+            self.cli('config', 'set', 'consent', 'ask')
+            with self.shell('bash') as t:
+                t.send('ji backend\r'); t.until(b'[y/N]', seconds=8)
+                self.assertIn(('Custom API (DSL) at ' + url.split('/')[2]).encode(), t.output)
+                t.send('n\r')
+                t.cmd('printf "STILL:%s\\n" "$PWD"', 'DONE')
+                self.assertIn(('STILL:' + str(self.cwd)).encode(), t.output)
+            self.assertEqual(requests, [])

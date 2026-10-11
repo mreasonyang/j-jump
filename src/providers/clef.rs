@@ -77,20 +77,26 @@ impl ProviderDriver for Clef {
                 "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/@cf/cloudflare/clef-flash"
             ),
             context: account,
-            transport: Transport::OfficialHttps,
+            transport: Transport::Https,
         })
     }
     fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
         if !self.accepts_model(model) {
             return Err(Error(5, "unsupported request model".into()));
         }
-        super::wire("clef").prepare(task, model)
+        super::wire("clef")
+            .prepare(task, model)
+            .map_err(super::wire_error("Clef-Flash request schema mismatch"))
     }
     fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("clef").decode(value)
+        super::wire("clef").decode(value).map_err(super::wire_error(
+            "Clef-Flash returned an invalid or unsuccessful Cloudflare response",
+        ))
     }
     fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("clef").questions(request)
+        super::wire("clef")
+            .questions(request)
+            .map_err(super::wire_error("Clef-Flash request schema mismatch"))
     }
     fn config_notice(&self, cfg: &Config, chinese: bool) -> Option<String> {
         if self.connection(cfg, None).is_ok() {

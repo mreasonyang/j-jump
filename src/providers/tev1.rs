@@ -137,13 +137,19 @@ impl ProviderDriver for Tev1 {
         if !self.accepts_model(model) {
             return Err(Error(5, "unsupported request model".into()));
         }
-        super::wire("tev1").prepare(task, model)
+        super::wire("tev1")
+            .prepare(task, model)
+            .map_err(super::wire_error("Tev1 4B request schema mismatch"))
     }
     fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("tev1").decode(value)
+        super::wire("tev1")
+            .decode(value)
+            .map_err(super::wire_error("Tev1 4B response schema mismatch"))
     }
     fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("tev1").questions(request)
+        super::wire("tev1")
+            .questions(request)
+            .map_err(super::wire_error("Tev1 4B request schema mismatch"))
     }
     fn setup_help(&self, cfg: &Config, chinese: bool) -> Option<String> {
         let url = base(cfg);
@@ -276,7 +282,7 @@ impl ProviderDriver for Tev1 {
         }
         let body = serde_json::to_vec(&responses[2])
             .map_err(|_| Error(5, "invalid diagnostic response".into()))?;
-        if crate::provider::validate(&body, &probe()?)?.as_deref() != Some("ready") {
+        if crate::provider::validate_for(cfg, &body, &probe()?)?.as_deref() != Some("ready") {
             return Err(Error(
                 5,
                 "local model did not pass the synthetic decision check".into(),

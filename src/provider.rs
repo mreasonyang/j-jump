@@ -201,12 +201,19 @@ pub fn request(
     let (mut low, mut high) = (0usize, entries.len().min(caps.max_candidates));
     while low < high {
         let mid = (low + high).div_ceil(2);
-        if encode(mid)?.len()
-            <= caps
-                .context_bytes
-                .unwrap_or(caps.max_body_bytes)
-                .min(caps.max_body_bytes)
-        {
+        // A request that exhausts the DSL budget is too large, like one over the byte limit.
+        let fits = match encode(mid) {
+            Ok(body) => {
+                body.len()
+                    <= caps
+                        .context_bytes
+                        .unwrap_or(caps.max_body_bytes)
+                        .min(caps.max_body_bytes)
+            }
+            Err(e) if crate::providers::dsl::is_resource_limit(&e) => false,
+            Err(e) => return Err(e),
+        };
+        if fits {
             low = mid;
         } else {
             high = mid - 1;
@@ -235,6 +242,9 @@ fn keys(v: &Value, want: &[&str]) -> bool {
 }
 /// Validate a response against the exact request. Ok(None) is a legitimate
 /// abstention: `none`, a tie, or a top probability below one half.
+///
+/// Infers the built-in driver from the request model; for fixtures only.
+/// Production code must use [`validate_for`] with the selected configuration.
 pub fn validate(bytes: &[u8], request: &[u8]) -> Result<Option<String>> {
     let req = strict_json(request)?;
     let model = req["model"]

@@ -368,7 +368,7 @@ fn key(
             }
         } else if !cfg.needs_credentials() {
             *pending = None;
-            if !cfg.is_local() || check(cfg, offline, checked)? {
+            if !cfg.has_local_check() || check(cfg, offline, checked)? {
                 return Ok(true);
             }
             if step == 0 {

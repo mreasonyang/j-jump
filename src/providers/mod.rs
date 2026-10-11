@@ -62,7 +62,7 @@ pub const CLOUD: Capabilities = Capabilities {
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transport {
-    OfficialHttps,
+    Https,
     Loopback,
 }
 pub struct Connection {
@@ -140,6 +140,8 @@ pub static DRIVERS: &[&dyn ProviderDriver] = &[
     &dsl::UNCONFIGURED,
     #[cfg(test)]
     &tests::TINY,
+    #[cfg(test)]
+    &tests::LIMITED,
 ];
 pub fn find(id: &str) -> Option<&'static dyn ProviderDriver> {
     DRIVERS.iter().copied().find(|d| d.descriptor().id == id)
@@ -198,6 +200,11 @@ pub fn validate_settings(cfg: &Config) -> Result<()> {
 /// Explicit user selection initializes new provider fields, and retains the
 /// effective values of an old profile before switching away. Loading is read-only.
 pub fn select(cfg: &mut Config, provider: crate::config::Provider) -> Result<()> {
+    if provider.id() == "dsl" {
+        let mut draft = cfg.clone();
+        draft.provider = provider;
+        draft.require_definition()?;
+    }
     if cfg.provider != provider {
         for f in cfg
             .provider
@@ -233,6 +240,61 @@ impl crate::config::Provider {
     pub const ClefFlash: Self = Self::builtin("clef-flash");
     pub const Tev1: Self = Self::builtin("tev1");
     pub const OpenAI: Self = Self::builtin("openai");
+}
+
+/// Built-in wire failures keep their provider-specific meaning; resource limits stay distinct.
+fn wire_error(message: &'static str) -> impl Fn(Error) -> Error {
+    move |e| {
+        if dsl::is_resource_limit(&e) {
+            e
+        } else {
+            Error(5, message.into())
+        }
+    }
+}
+
+/// A saved custom definition this version rejects: every provider use refuses with the remedy.
+pub struct Rejected;
+pub static REJECTED: Rejected = Rejected;
+static REJECTED_DESCRIPTION: Descriptor = Descriptor {
+    id: "dsl",
+    label: "Custom API (DSL)",
+    summary: Text(
+        "Saved custom API definition is invalid for this version.",
+        "已保存的自定义 API 定义不适用于当前版本。",
+    ),
+    missing: Text(
+        "Custom API blocked: the saved definition is invalid for this version. Replace it: jjump config import-provider FILE, or remove it: jjump config remove-provider",
+        "自定义 API 暂不可用：已保存的定义不适用于当前版本。替换：jjump config import-provider FILE；或移除：jjump config remove-provider",
+    ),
+    fields: &[],
+    credential: None,
+};
+fn rejected() -> Error {
+    Error(7, crate::config::INVALID_SAVED_DEFINITION.into())
+}
+impl ProviderDriver for Rejected {
+    fn descriptor(&self) -> &'static Descriptor {
+        &REJECTED_DESCRIPTION
+    }
+    fn model(&self) -> &str {
+        "unconfigured"
+    }
+    fn connection(&self, _: &Config, _: Option<&str>) -> Result<Connection> {
+        Err(rejected())
+    }
+    fn prepare(&self, _: Value, _: &str) -> Result<Vec<u8>> {
+        Err(rejected())
+    }
+    fn decode(&self, _: Value) -> Result<Value> {
+        Err(rejected())
+    }
+    fn questions(&self, _: &Value) -> Result<Value> {
+        Err(rejected())
+    }
+    fn diagnostic(&self, _: &Config, _: DiagnosticKind, _: &[Value]) -> Result<Diagnostic> {
+        Err(rejected())
+    }
 }
 
 /// Shipped wire definitions use the same interpreter as imported APIs.
@@ -300,6 +362,111 @@ mod tests {
             Ok(Diagnostic::Complete(
                 serde_json::json!({"custom_probe":"ready"}),
             ))
+        }
+    }
+    pub struct Limited;
+    pub static LIMITED: Limited = Limited;
+    static LIMITED_DESC: Descriptor = Descriptor {
+        id: "limited-test",
+        label: "Limited test",
+        summary: Text("test", "test"),
+        missing: Text("test", "test"),
+        fields: &[],
+        credential: None,
+    };
+    impl ProviderDriver for Limited {
+        fn descriptor(&self) -> &'static Descriptor {
+            &LIMITED_DESC
+        }
+        fn model(&self) -> &'static str {
+            "limited-test-1"
+        }
+        fn connection(&self, _: &Config, _: Option<&str>) -> Result<Connection> {
+            Ok(Connection {
+                url: "http://127.0.0.1:1/decision".into(),
+                context: String::new(),
+                transport: Transport::Loopback,
+            })
+        }
+        fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
+            if task["state"]["query"] == "broken" {
+                return Err(Error(5, "provider DSL expression failed".into()));
+            }
+            if task["questions"]["destination"]["criteria"]
+                .as_object()
+                .unwrap()
+                .len()
+                > 3
+            {
+                return Err(Error(5, "provider DSL resource limit exceeded".into()));
+            }
+            serde_json::to_vec(&serde_json::json!({"model":model,"task":task}))
+                .map_err(|_| Error(5, "encode".into()))
+        }
+    }
+    fn groups(home: &std::path::Path, n: usize) -> Vec<Group> {
+        (0..n)
+            .map(|i| {
+                let path = home.join(format!("dir{i}"));
+                std::fs::create_dir_all(&path).unwrap();
+                Group {
+                    id: format!("c{i}"),
+                    name: format!("dir{i}"),
+                    parent: String::new(),
+                    usage: "low",
+                    members: vec![Candidate {
+                        id: format!("c{i}"),
+                        path,
+                        count: 1,
+                        last_seen: 1,
+                        weight: 1.0,
+                    }],
+                }
+            })
+            .collect()
+    }
+    #[test]
+    fn resource_limit_shrinks_the_request_and_other_failures_propagate() {
+        let t = tempfile::tempdir().unwrap();
+        let home = t.path().canonicalize().unwrap();
+        let paths = Paths {
+            home: home.clone(),
+            config: home.join("config/c.json"),
+            data: home.join("data"),
+            cache: home.join("cache"),
+        };
+        let cfg = Config {
+            provider: Provider::parse("limited-test").unwrap(),
+            ..Config::default()
+        };
+        let groups = groups(&home, 6);
+        let (_, sent) = provider::request("directory", &groups, &home, &paths, &cfg).unwrap();
+        assert_eq!(sent, 2);
+        let e = provider::request("broken", &groups, &home, &paths, &cfg).unwrap_err();
+        assert_eq!(e.1, "provider DSL expression failed");
+    }
+    #[test]
+    fn builtin_wire_failures_keep_provider_specific_messages() {
+        let garbage = serde_json::json!({"unexpected": true});
+        for (id, response, request) in [
+            ("jev", None, "Jev request schema mismatch"),
+            (
+                "clef-flash",
+                Some("Clef-Flash returned an invalid or unsuccessful Cloudflare response"),
+                "Clef-Flash request schema mismatch",
+            ),
+            (
+                "openai",
+                Some("OpenAI Decisions schema mismatch"),
+                "OpenAI Decisions schema mismatch",
+            ),
+            ("tev1", None, "Tev1 4B request schema mismatch"),
+        ] {
+            let d = find(id).unwrap();
+            if let Some(message) = response {
+                assert_eq!(d.decode(garbage.clone()).unwrap_err().1, message);
+            }
+            assert_eq!(d.questions(&garbage).unwrap_err().1, request);
         }
     }
     #[test]

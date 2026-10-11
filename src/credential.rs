@@ -99,6 +99,22 @@ pub fn environment_name_for_config(cfg: &Config) -> Option<&str> {
         .env()
         .filter(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
 }
+/// The variable a user should set: the present one, else the first declared.
+pub fn declared_environment_name(cfg: &Config) -> Option<&str> {
+    if cfg.provider.id() == "dsl" {
+        return cfg.api_definition.as_ref()?.env();
+    }
+    environment_name(cfg.provider).or_else(|| {
+        cfg.provider
+            .driver()
+            .descriptor()
+            .credential
+            .as_ref()?
+            .env
+            .first()
+            .copied()
+    })
+}
 fn entry_config(cfg: &Config) -> Result<keyring::Entry> {
     if cfg.provider.id() != "dsl" {
         return entry(cfg.provider);

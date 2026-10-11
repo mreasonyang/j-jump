@@ -91,6 +91,9 @@ Semantic help is **off by default**. Choose one provider in `jjump setup`, which
   remotes, environment variables, shell history and keys are never sent. `jjump preview "my cv"` shows the exact request.
 - Keep sensitive folders out with `no_send` (searchable locally, never sent) or `exclude` (never recorded).
 
+Other decision APIs, such as OpenRouter or Vercel gateways and other local runtimes, can be imported as a reviewed JSON
+definition: see [declarative APIs](docs/CONFIGURATION.md#declarative-apis-0043).
+
 Setup without the wizard, privacy levels and every setting: [configuration guide](docs/CONFIGURATION.md).
 
 ## Troubleshooting
@@ -139,5 +142,3 @@ the tests.
 ## License
 
 [MIT](LICENSE.md). Release archives include the licenses and notices of all dependencies.
-
-Custom decision APIs and gateways can be imported with a bounded JSON DSL; see [configuration](docs/CONFIGURATION.md#declarative-apis-0043). / 自定义网关与本地 API 见 [DSL 配置](docs/CONFIGURATION-AND-HELP.md#dsl-自定义-api0043-起)。

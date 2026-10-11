@@ -245,8 +245,12 @@ Exit codes: `2` invalid input, `3` no match, `4` selection required, `5` provide
 
 A versioned JSON definition can configure an API without adding a Rust provider. The four built-in providers use the
 same JSON wire interpreter; their existing names, settings and credential entries remain available. An imported
-definition occupies the `dsl` slot. Import another definition to replace that slot; selecting a built-in retains it.
-Definitions are trusted configuration: review their endpoint and transformations before importing them.
+definition occupies the `dsl` slot. Import another definition to replace that slot; selecting a built-in retains it;
+`jjump config remove-provider` clears it. Definitions are trusted configuration: review their endpoint, credential
+variable and transformations before importing them. Import prints the definition ID, endpoint, transport and credential
+variable it will use. `config show` repeats them, `credential status` and `doctor` name the credential variable,
+and the consent prompt names the endpoint host. `config show --json` and `doctor --json` report `provider_definition`
+as `ok`, `invalid` or `none`.
 
 ```sh
 jjump config provider-example openrouter-jev > provider.json
@@ -260,16 +264,24 @@ jjump preview backend                       # inspect the exact filtered request
 `provider-example` also accepts `openrouter-microsoft`, `openrouter-openai`, `openrouter-clef`, `vercel-openai` and
 `local-tev1`. The three additional OpenRouter examples use its alpha Decisions route with the same System One-shaped
 choice contract. Jev's template explicitly admits the dated model ID documented by OpenRouter; other templates accept
-the requested model only unless you add a verified response alias. The gateway examples target OpenRouter's
-[System One endpoint](https://openrouter.ai/docs/guides/community/typesafe-sdk) and Vercel's
-[OpenAI-compatible Decisions endpoint](https://vercel.com/i/ai-sdk-evaluation-to-decisions). They are synthetic format
-tested; live account permissions and model quality are not tested. Gateway API changes may require editing the definition.
-The editable files are in [examples/providers](../examples/providers/). A model served in a different protocol needs the
-matching wire definition, not just a changed URL. Model fallbacks with unlisted response names are rejected.
+the requested model only unless you add a verified response alias. `openrouter-jev` targets OpenRouter's
+[System One endpoint](https://openrouter.ai/docs/guides/community/typesafe-sdk); the other OpenRouter templates target its
+[alpha Decisions endpoint](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request). All
+OpenRouter templates read `OPENROUTER_API_KEY`. `vercel-openai` targets Vercel's
+[OpenAI-compatible Decisions endpoint](https://vercel.com/i/ai-sdk-evaluation-to-decisions) and reads `AI_GATEWAY_API_KEY`.
+They are synthetic format tested; live account permissions, exact gateway response fields and model quality are not
+tested. Gateway API changes may require editing the definition. The editable files are in
+[examples/providers](../examples/providers/). A model served in a different protocol needs the matching wire definition,
+not just a changed URL. The shipped templates take the response model from the API's own model field and reject names
+that are neither the requested model nor a listed alias; a custom response transform decides which field it reports.
 
 Import validates offline, selects `dsl`, and copies the definition into private configuration. The source file can then
-be removed. Semantic enablement, consent and privacy settings are preserved. Import resets the custom credential source
-to `environment`; it never writes or deletes an OS key. `credential set` stores under `j-jump.dsl.DEFINITION-ID`, account
+be removed. Semantic enablement, consent and privacy settings are preserved. Importing a different definition resets the
+custom credential source to `environment`; re-importing an identical definition keeps it. Import never writes or deletes
+an OS key; delete a stored custom key with `jjump credential delete` before removing or replacing its definition. An
+invalid definition file exits with code 2 and names the failing rule. If a saved definition no longer passes the
+current rules, local navigation keeps working and semantic commands name the remedy: import a corrected file or run
+`jjump config remove-provider`. `credential set` stores under `j-jump.dsl.DEFINITION-ID`, account
 `api-key`, separate from every built-in and other definition ID. Profiles with the same definition ID share that OS entry.
 The explicitly named, nonempty environment variable takes priority. Secret values are resolved only in transport and are
 never available to expressions, preview, definition hashes or diagnostics.
@@ -285,8 +297,8 @@ The complete examples are runnable templates. Top-level fields are strict:
 | `model` | Exact request model, also required at the root of the wire request |
 | `url` | Complete JSON POST endpoint; no credentials, query or fragment |
 | `transport` | `https`, or `loopback` for numeric `127.0.0.1` / `[::1]` HTTP |
-| `auth` | `{"type":"none"}`, `{"type":"bearer","env":"MY_API_KEY"}`, or `{"type":"header","env":"MY_API_KEY","name":"x-api-key"}` |
-| `limits` | Optional `candidates` (1–254), `body_bytes` (256–65536), `context_bytes` (optional 256–65536), `diverse`, `cache` |
+| `auth` | `{"type":"none"}`, `{"type":"bearer","env":"MY_API_KEY"}`, or `{"type":"header","env":"MY_API_KEY","name":"x-api-key"}`; built-in provider variables such as `TYPESAFE_API_KEY` or `OPENAI_API_KEY` are refused |
+| `limits` | Optional object; each field is optional: `candidates` (1–254), `body_bytes` (256–65536), `context_bytes` (256–65536), `diverse`, `cache` |
 | `response_models` | Optional explicit response model aliases; no wildcards; max 16 |
 | `wire` | `request`, `response`, `questions`, optional `request_shape`, `response_shape`, `response_checks` |
 | `probe` | Optional finite local check plan, described below |
@@ -294,7 +306,8 @@ The complete examples are runnable templates. Top-level fields are strict:
 Default limits: 254 candidates, 64 KiB body, no context limit, no diversity adjustment, cache off. Local responses are
 never persisted in the answer cache even if `cache` is requested. Cloud endpoints honor configured proxy settings;
 loopback always connects directly. Redirects are disabled. Loopback definitions must use `auth: {"type":"none"}`.
-Host, content framing and proxy credential headers cannot be overridden. Only JSON POST APIs and bounded local GET/POST
+Host, content type, content framing, hop-by-hop (`connection`, `te`, `upgrade`, …), `expect` and proxy credential
+headers cannot be overridden; header names are at most 64 bytes. Only JSON POST APIs and bounded local GET/POST
 probes are supported; streaming, OAuth exchange, arbitrary signing, service installation and downloads need host support.
 
 ### Expressions and source validation
@@ -319,7 +332,7 @@ An expression is a tagged JSON object. Fields not listed for its operation are e
 | `length` | `input`: object/array count or string UTF-8 byte length |
 | `all`, `any` | `items`: boolean conjunction/disjunction; every operand is checked |
 | `not` | `input`: boolean negation |
-| `version_at_least` | `input`, `minimum`: compare a three-part version with `[major,minor,patch]`; suffixes are ignored |
+| `version_at_least` | `input`, `minimum`: compare a three-part version with `[major,minor,patch]`; a pre-release such as `0.35.0-rc1` is below `0.35.0`; `+build` metadata is ignored |
 
 Request roots contain only `task` (already filtered `state` and named `questions`) and `model`. Response roots contain
 only `response`; question recovery roots contain only `request`. Mapping operations bind the current element as `item`,
@@ -331,12 +344,15 @@ question identity, choice IDs, refusal handling, finite probabilities, distribut
 A shape supports `kind` (`object`, `array`, `string`, `uint`, `number`, `boolean`, `null`, or empty for unconstrained JSON),
 `properties`, `required`, `extra`, `items`, `values`, `choices`, `any`, `min`, and `max`. Objects reject unknown fields by
 default; `values` validates dynamic object entries. `any` accepts one matching shape. `min`/`max` bound collection sizes
-or string byte lengths. `response_checks` is an array of boolean expressions, all required to be true before normalization.
+or string byte lengths. Keywords must fit their kind: `properties`, `required`, `extra` and `values` need `object`,
+`items` needs `array`, `min`/`max` need `string`, `array` or `object`, and `any` stands alone. `response_checks` is an array of boolean expressions, all required to be true before normalization.
 Gateway definitions explicitly admit documented metadata and project it out; malformed decision fields remain errors.
 
-Definitions are at most 32 KiB; expressions have at most 4096 nodes and depth 32. Values are bounded to 1024 entries per
-collection, depth 32 and 256 KiB serialized size. Each expression evaluation has 100,000 work units; response assertions and normalization share one budget; intermediate output
-bytes and copied mapping scopes consume additional units. The core crops the candidate prefix to the configured body/context budget before sending.
+Definitions are at most 32 KiB of JSON, and the saved configuration, which stores the definition indented, must stay
+below 64 KiB. Expressions have at most 4096 nodes and depth 32. Values are bounded to 1024 entries per
+collection, depth 32 and 256 KiB serialized size. Each expression evaluation has 100,000 work units; response assertions and normalization share one budget; every
+evaluated node and its output bytes consume units. The core crops the candidate prefix to the configured body/context
+budget before sending, and treats a prefix that exceeds an evaluation limit as too large.
 Unsupported operations, missing references, duplicate JSON keys, duplicate indices, wrong types and exhausted limits fail
 closed. The full definition digest participates in endpoint binding, cache and circuit identities. Adapter configuration
 fingerprints prevent a pending request from crossing a concurrent definition change.
@@ -355,7 +371,8 @@ jjump provider-check --json
 The example checks Ollama version, confirms the selected GGUF tag, then sends a synthetic ready/none decision. It retains
 Tev's 23-candidate and 1600-byte context limits, with no answer cache. It never starts Ollama or downloads weights.
 
-A `probe` has `steps` (1–7) and a `report` expression. Each step has an absolute same-origin `path`, optional synthetic
+A `probe` has `steps` (1–7) and a `report` expression. Each step has an absolute same-origin `path` without
+whitespace or control characters, optional synthetic
 `task`, optional `expect_choice`, and optional boolean `checks`. A step without a task uses GET; one with a task adapts it
 through `wire.request` and uses POST. Checks run after each reply with `response`, `responses`, and `model`; an expected
 choice must pass core decision validation. The report must evaluate to an object and sees `responses` and `model`.

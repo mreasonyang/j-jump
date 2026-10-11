@@ -119,6 +119,15 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
         )
         .into(),
     ];
+    if cfg.rejected_definition.is_some() && (cfg.provider.id() != "dsl" || !cfg.semantic) {
+        lines.push(
+            tr(
+                "Saved custom API definition: invalid for this version. Replace it: jjump config import-provider FILE, or remove it: jjump config remove-provider",
+                "已保存的自定义 API 定义不适用于当前版本。替换：jjump config import-provider FILE；或移除：jjump config remove-provider",
+            )
+            .into(),
+        );
+    }
     if !cfg.semantic {
         lines.push(
             tr(
@@ -145,6 +154,9 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
     ));
     if cfg.driver().connection(cfg, None).is_err() {
         lines.push(missing_key_notice(cfg));
+        if cfg.require_definition().is_err() {
+            return lines;
+        }
         lines.push("jjump setup".into());
     }
     if !cfg.needs_credentials() {
@@ -163,10 +175,15 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
             .into(),
         );
         lines.push(
-            if cfg.is_local() {
+            if cfg.has_local_check() {
                 tr(
                     "Local service and model: not checked. Run jjump provider-check explicitly.",
                     "本机服务与模型：尚未检查。请显式运行 jjump provider-check。",
+                )
+            } else if cfg.is_local() {
+                tr(
+                    "Local service: not checked; this definition has no provider-check plan.",
+                    "本机服务：尚未检查；此定义没有 provider-check 检查计划。",
                 )
             } else {
                 tr(
@@ -197,7 +214,21 @@ pub fn readiness(cfg: &Config, offline: bool) -> Vec<String> {
                 "暂不可用：尚未配置凭证。"
             )
         ));
-        lines.push("jjump setup".into());
+        lines.push(
+            match cfg
+                .api_definition
+                .as_ref()
+                .filter(|_| cfg.provider.id() == "dsl")
+                .and_then(|d| d.env())
+            {
+                Some(name) => format!(
+                    "{} ${name} {}",
+                    tr("Set", "请设置"),
+                    tr("or run jjump credential set", "或运行 jjump credential set")
+                ),
+                None => "jjump setup".into(),
+            },
+        );
     }
     if cfg.needs_credentials() {
         lines.push(format!(
@@ -427,16 +458,43 @@ pub fn consent_prompt(cfg: &Config, count: usize) -> String {
             "目录的完整路径、使用频度和当前完整路径",
         ),
     };
+    let target = match cfg
+        .api_definition
+        .as_ref()
+        .filter(|_| cfg.provider.id() == "dsl")
+    {
+        Some(d) => format!(
+            "{} {} {}",
+            cfg.provider.label(),
+            tr("at", "，地址"),
+            endpoint_host(&d.url)
+        ),
+        None => cfg.provider.label().into(),
+    };
     format!(
         "{} {} {} {} ({})?\n{}: {}. [y/N] ",
         tr("Send query and", "发送查询和"),
         count,
         tr("directory options to", "个目录选项给"),
-        cfg.provider.label(),
+        target,
         cfg.privacy,
         tr("Fields", "发送字段"),
         fields
     )
+}
+/// Host and explicit port of an endpoint, for disclosure prompts.
+pub fn endpoint_host(url: &str) -> String {
+    let host = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| {
+            let host = u.host_str()?.to_owned();
+            Some(match u.port() {
+                Some(port) => format!("{host}:{port}"),
+                None => host,
+            })
+        })
+        .unwrap_or_else(|| url.into());
+    j_jump::display(&host)
 }
 pub fn missing_key_notice(cfg: &Config) -> String {
     account_override_notice(cfg)
@@ -463,7 +521,24 @@ pub fn error_text(e: &Error) -> String {
         .map(|d| d.descriptor().label)
         .find(|label| e.1.contains(label))
         .unwrap_or("语义服务");
-    let detail: std::borrow::Cow<'_, str> = if e.1.contains("ollama_url expects") {
+    let detail: std::borrow::Cow<'_, str> = if e.1.starts_with("saved custom API definition")
+        || e.1.starts_with("replace it: jjump config import-provider")
+    {
+        "已保存的自定义 API 定义不适用于当前版本。替换：jjump config import-provider FILE；或移除：jjump config remove-provider".into()
+    } else if e.1.starts_with("custom API is selected without")
+        || e.1.starts_with("import one: jjump config import-provider")
+    {
+        "已选择自定义 API，但没有定义。导入：jjump config import-provider FILE；或移除该选择：jjump config remove-provider".into()
+    } else if e.1.starts_with("import a definition first") {
+        "请先导入定义：jjump config import-provider FILE".into()
+    } else if let Some(reason) = e.1.strip_prefix("invalid provider definition: ") {
+        format!("服务定义无效，配置未改变。原因：{reason}").into()
+    } else if e.1.contains("provider DSL resource limit exceeded") {
+        format!("{provider} 请求或响应超出定义的资源上限；未选择目录。请缩短查询，或简化服务定义。")
+            .into()
+    } else if e.1.contains("request schema mismatch") {
+        format!("{provider} 请求格式转换失败；未发送请求，未选择目录。").into()
+    } else if e.1.contains("ollama_url expects") {
         "Ollama 地址只允许 http://127.0.0.1:端口 或 http://[::1]:端口，不允许远程主机、凭据、路径或查询参数。".into()
     } else if e.1.contains("ollama_model expects") {
         "模型标签只允许 tev1:4b、tev1:4b-q8_0、tev1:4b-q4_K_M 或 tev1:4b-bf16；需要 GGUF 权重。"

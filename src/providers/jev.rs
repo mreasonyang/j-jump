@@ -33,13 +33,19 @@ impl ProviderDriver for Jev {
         if !self.accepts_model(model) {
             return Err(Error(5, "unsupported request model".into()));
         }
-        super::wire("jev").prepare(task, model)
+        super::wire("jev")
+            .prepare(task, model)
+            .map_err(super::wire_error("Jev request schema mismatch"))
     }
     fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("jev").decode(value)
+        super::wire("jev")
+            .decode(value)
+            .map_err(super::wire_error("Jev response schema mismatch"))
     }
     fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("jev").questions(request)
+        super::wire("jev")
+            .questions(request)
+            .map_err(super::wire_error("Jev request schema mismatch"))
     }
     fn connection(&self, _: &Config, context: Option<&str>) -> Result<Connection> {
         if context.is_some_and(|s| !s.is_empty()) {
@@ -48,7 +54,7 @@ impl ProviderDriver for Jev {
         Ok(Connection {
             url: "https://api.typesafe.ai/v1/systemone".into(),
             context: String::new(),
-            transport: Transport::OfficialHttps,
+            transport: Transport::Https,
         })
     }
 }

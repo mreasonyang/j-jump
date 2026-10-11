@@ -51,19 +51,25 @@ impl ProviderDriver for OpenAI {
         Ok(Connection {
             url: "https://api.openai.com/v1/decisions".into(),
             context: String::new(),
-            transport: Transport::OfficialHttps,
+            transport: Transport::Https,
         })
     }
     fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
         if !self.accepts_model(model) {
             return Err(Error(5, "unsupported request model".into()));
         }
-        super::wire("openai").prepare(task, model)
+        super::wire("openai")
+            .prepare(task, model)
+            .map_err(super::wire_error("OpenAI Decisions schema mismatch"))
     }
     fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("openai").questions(request)
+        super::wire("openai")
+            .questions(request)
+            .map_err(super::wire_error("OpenAI Decisions schema mismatch"))
     }
     fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("openai").decode(value)
+        super::wire("openai")
+            .decode(value)
+            .map_err(super::wire_error("OpenAI Decisions schema mismatch"))
     }
 }
