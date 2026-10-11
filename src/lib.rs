@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod config;
 pub mod credential;
 pub mod engine;
+pub mod observer;
 pub mod picker;
 pub mod provider;
 pub mod providers;

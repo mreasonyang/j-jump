@@ -43,14 +43,6 @@ function __jj_prompt {
   local rc=$?
   __jj_restore_completion
   if [ "${__jj_last_pwd-}" != "$PWD" ]; then
-    if [ -n "${__jj_record_pid-}" ] && kill -0 "$__jj_record_pid" 2>/dev/null; then
-      local __jj_attempt
-      for __jj_attempt in 1 2 3 4; do
-        command sleep 0.005 2>/dev/null || break
-        kill -0 "$__jj_record_pid" 2>/dev/null || break
-      done
-      if kill -0 "$__jj_record_pid" 2>/dev/null; then return "$rc"; fi
-    fi
     __jj_record_pid=$(command env -u TYPESAFE_API_KEY jjump observe -- "$PWD" 2>/dev/null)
     [ -z "$__jj_record_pid" ] || __jj_last_pwd=$PWD
   fi

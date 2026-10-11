@@ -203,7 +203,7 @@ jjump config set exclude '["/work/scratch"]'
 
 ## History and data
 
-J-Jump records the folder you're in each time your prompt appears after a directory change. It never records commands.
+J-Jump records the folder you're in each time your prompt appears after a directory change. It never records commands. Rapid changes queue behind the current writer, so accepted visits finish even if no further prompt appears. The private queue holds up to 128 outstanding visits per profile; store errors, queue saturation or process failure can still prevent recording. Clearing or forgetting history invalidates older queued visits, and tracking/exclusion settings are checked again before writing.
 
 ```sh
 jjump history list

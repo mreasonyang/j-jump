@@ -88,15 +88,6 @@ if status is-interactive
     function __jj_prompt --on-event fish_prompt
         set -l rc $status
         if not set -q __jj_last_pwd; or test "$__jj_last_pwd" != "$PWD"
-            if set -q __jj_record_pid[1]; and kill -0 $__jj_record_pid[1] 2>/dev/null
-                for __jj_attempt in 1 2 3 4
-                    command sleep 0.005 2>/dev/null; or break
-                    kill -0 $__jj_record_pid[1] 2>/dev/null; or break
-                end
-                if kill -0 $__jj_record_pid[1] 2>/dev/null
-                    return $rc
-                end
-            end
             set -g __jj_record_pid (command env -u TYPESAFE_API_KEY jjump observe -- "$PWD" 2>/dev/null)
             if set -q __jj_record_pid[1]
                 set -g __jj_last_pwd "$PWD"

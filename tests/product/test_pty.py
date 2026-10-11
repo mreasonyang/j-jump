@@ -118,28 +118,6 @@ class RealTerminal(unittest.TestCase):
      rows=dict(sqlite3.connect(state/'data/visits.db').execute('select path,count from visits'))
      self.assertEqual(rows,{str(self.a):2,str(self.b):2})
     finally:t.close()
- def test_live_supervisor_guard_is_bounded_and_retries_current_pwd(self):
-  for shell in ['bash','zsh','fish']:
-   with self.subTest(shell=shell):
-    state=self.root/('guard-state-'+shell);env=dict(self.env,J_JUMP_HOME=str(state),TERM='dumb' if shell=='fish' else 'xterm');init=self.root/('guard-init-'+shell);init.write_bytes(self.cli('init',shell).stdout)
-    argv={'bash':['bash','--noprofile','--norc','-i'],'zsh':['zsh','-f','-i'],'fish':['fish','--no-config','--interactive']}[shell]
-    t=Terminal(argv,env,self.a);blocker=subprocess.Popen(['sleep','2'])
-    try:
-     t.send('source '+shlex.quote(str(init))+"; printf '\\nGUARD-READY\\n'\n");t.until(b'\r\nGUARD-READY\r\n');time.sleep(.12)
-     assignment=('set -g __jj_record_pid '+str(blocker.pid)) if shell=='fish' else ('__jj_record_pid='+str(blocker.pid))
-     t.send(assignment+"; printf '\\nGUARD-SET\\n'\n");t.until(b'\r\nGUARD-SET\r\n')
-     started=time.monotonic();t.send('cd '+shlex.quote(str(self.b))+"; printf '\\nGUARD-BLOCKED\\n'\n");t.until(b'\r\nGUARD-BLOCKED\r\n')
-     t.send("printf '\\nGUARD-AFTER\\n'\n");t.until(b'\r\nGUARD-AFTER\r\n')
-     self.assertLess(time.monotonic()-started,.3)
-     rows=dict(sqlite3.connect(state/'data/visits.db').execute('select path,count from visits'))
-     self.assertEqual(rows,{str(self.a):1})
-     blocker.terminate();blocker.wait(timeout=2)
-     t.send("printf '\\nGUARD-RETRY\\n'\n");t.until(b'\r\nGUARD-RETRY\r\n');time.sleep(.15)
-     rows=dict(sqlite3.connect(state/'data/visits.db').execute('select path,count from visits'))
-     self.assertEqual(rows,{str(self.a):1,str(self.b):1})
-    finally:
-     if blocker.poll() is None:blocker.terminate();blocker.wait(timeout=2)
-     t.close()
  def test_zsh_completion_changes_buffer_only(self):
   self.seeded();init=self.root/'init-z';init.write_bytes(self.cli('init','zsh').stdout)
   t=Terminal(['zsh','-f','-i'],self.env,self.home)

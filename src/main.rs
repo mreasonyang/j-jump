@@ -79,7 +79,12 @@ enum Command {
     #[command(hide = true)]
     Observe { path: PathBuf },
     #[command(hide = true)]
-    ObserveSupervise { path: PathBuf },
+    ObserveSupervise {
+        #[arg(long)]
+        socket_fd: i32,
+        #[arg(long)]
+        owner_fd: i32,
+    },
     #[command(hide = true)]
     SetupIfNeeded,
     #[command(hide = true)]
@@ -1332,86 +1337,6 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
 fn offline_env() -> bool {
     std::env::var("J_JUMP_OFFLINE").is_ok_and(|s| s == "1" || s == "true")
 }
-fn observer_command(
-    action: &str,
-    path: &std::path::Path,
-    config: Option<&std::path::Path>,
-) -> Result<std::process::Command> {
-    use std::process::Command as Process;
-    let mut command = Process::new(
-        std::env::current_exe().map_err(|_| Error(7, "observer executable unavailable".into()))?,
-    );
-    command.env_clear();
-    for key in [
-        "HOME",
-        "PATH",
-        "PWD",
-        "XDG_CONFIG_HOME",
-        "XDG_DATA_HOME",
-        "XDG_CACHE_HOME",
-        "J_JUMP_HOME",
-        "J_JUMP_CONFIG",
-    ] {
-        if let Some(value) = std::env::var_os(key) {
-            command.env(key, value);
-        }
-    }
-    if let Some(config) = config {
-        command.arg("--config").arg(config);
-    }
-    command.arg(action).arg("--").arg(path);
-    Ok(command)
-}
-fn observe(path: &std::path::Path, config: Option<&std::path::Path>) -> Result<()> {
-    use std::process::Stdio;
-    let mut command = observer_command("observe-supervise", path, config)?;
-    let supervisor = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| Error(7, "cannot launch observer supervisor".into()))?;
-    // The shell keeps this PID until the supervisor has reaped its sole worker.
-    println!("{}", supervisor.id());
-    Ok(())
-}
-fn supervise_record(path: &std::path::Path, config: Option<&std::path::Path>) -> Result<()> {
-    use std::{
-        process::Stdio,
-        time::{Duration, Instant},
-    };
-    let started = Instant::now();
-    let mut command = observer_command("record", path, config)?;
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| Error(7, "cannot launch record worker".into()))?;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return Ok(()),
-            Ok(None) => {}
-            Err(_) => {
-                let _ = child.kill();
-                child
-                    .wait()
-                    .map_err(|_| Error(7, "cannot reap observer worker".into()))?;
-                return Err(Error(7, "cannot inspect observer worker".into()));
-            }
-        }
-        if started.elapsed() >= Duration::from_millis(250) {
-            let _ = child.kill();
-            // The prompt already returned. Stay alive until this worker is reaped;
-            // the shell guards this supervisor PID from launching another write.
-            child
-                .wait()
-                .map_err(|_| Error(7, "cannot reap observer worker".into()))?;
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-}
 fn explain(paths: &Paths, terms: Vec<String>, is_preview: bool, machine: bool) -> Result<()> {
     // Parse exactly as a noninteractive `query` does so both describe the same
     // candidate set for the same terms, including the trailing child-only `/`.
@@ -1596,10 +1521,14 @@ fn run() -> Result<()> {
         );
     }
     if let Some(Command::Observe { ref path }) = cli.command {
-        return observe(path, cli.config.as_deref());
+        return j_jump::observer::observe(path, cli.config.as_deref());
     }
-    if let Some(Command::ObserveSupervise { ref path }) = cli.command {
-        return supervise_record(path, cli.config.as_deref());
+    if let Some(Command::ObserveSupervise {
+        socket_fd,
+        owner_fd,
+    }) = cli.command
+    {
+        return j_jump::observer::supervise(Paths::discover(cli.config)?, socket_fd, owner_fd);
     }
     let paths = Paths::discover(cli.config)?;
     if let Some(Command::AdapterServe) = cli.command {
