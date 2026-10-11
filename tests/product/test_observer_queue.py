@@ -1,7 +1,7 @@
 """Deterministic prompt regression: keep a real previous owner suspended.
 
 Accepted events must survive later prompts and shell exit, be serialized by
-that owner, and remain bound to the history generation at submission.
+that owner, and remain bound to the history epoch at submission.
 """
 import contextlib
 import concurrent.futures
@@ -56,40 +56,93 @@ class ObserverQueue(unittest.TestCase):
         with contextlib.closing(sqlite3.connect(self.db)) as db:
             return dict(db.execute('SELECT path,count FROM visits'))
 
-    def test_generation_snapshot_waits_for_a_previous_commit(self):
-        # A rollback-journal writer briefly holds EXCLUSIVE during disk sync.
-        # The old 30 ms worker budget rejected this foreground snapshot before
-        # the event could enter the queue, even though no worker was stuck.
-        with contextlib.closing(sqlite3.connect(self.db)) as db:
-            db.execute('BEGIN EXCLUSIVE')
-            child = subprocess.Popen([str(BIN), 'observe', '--', str(self.beta)],
-                                     cwd=self.beta, env=dict(self.env, PWD=str(self.beta)),
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            try:
-                time.sleep(.2)
-                self.assertIsNone(child.poll(), 'snapshot gave up before the commit finished')
-            finally:
-                db.rollback()
-                out, err = child.communicate(timeout=2)
-        self.assertEqual(child.returncode, 0, err)
-        self.assertGreater(int(out), 1)
-        deadline = time.monotonic() + 2
-        while self.rows().get(str(self.beta)) != 1 and time.monotonic() < deadline:
-            time.sleep(.01)
-        self.assertEqual(self.rows().get(str(self.beta)), 1)
-
-    def test_generation_snapshot_still_refuses_a_stuck_store_promptly(self):
+    def test_exclusive_store_lock_does_not_block_submission_or_drop_visits(self):
+        # Hold longer than both former deadlines. The frontend must not read
+        # SQLite, and the owned worker must retain/retry every accepted visit.
         with contextlib.closing(sqlite3.connect(self.db)) as db:
             db.execute('BEGIN EXCLUSIVE')
             started = time.monotonic()
+            owners = {int(self.cli('observe', '--', self.beta, cwd=self.beta).stdout)
+                      for _ in range(4)}
+            self.assertLess(time.monotonic() - started, .2)
+            self.assertEqual(len(owners), 1)
+            time.sleep(.7)
+            os.kill(next(iter(owners)), 0)
+            db.rollback()
+        deadline = time.monotonic() + 3
+        while self.rows().get(str(self.beta)) != 4 and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(self.rows().get(str(self.beta)), 4)
+
+    def test_all_shells_queue_during_exclusive_store_lock_and_drain_after_exit(self):
+        for shell, argv in SHELL_ARGV.items():
+            with self.subTest(shell=shell):
+                self.cli('history', 'clear', '--apply')
+                init = self.root / ('locked-' + shell)
+                init.write_bytes(self.cli('init', shell).stdout)
+                with contextlib.closing(sqlite3.connect(self.db)) as db:
+                    db.execute('BEGIN EXCLUSIVE')
+                    t = Terminal(argv, dict(self.env, PS1='JJ> ', PS2='MORE> ',
+                                           TERM='dumb' if shell == 'fish' else 'xterm'),
+                                 self.alpha)
+                    try:
+                        t.send('source ' + shlex.quote(str(init)) +
+                               "; printf '\\nLOCK-READY\\n'\n")
+                        t.until(b'\r\nLOCK-READY\r\n')
+                        for i, path in enumerate((self.beta, self.alpha, self.beta)):
+                            marker = 'LOCKED-' + str(i)
+                            t.send('cd ' + shlex.quote(str(path)) +
+                                   "; printf '\\n" + marker + "\\n'\n")
+                            t.until(('\r\n' + marker + '\r\n').encode())
+                        t.send("printf '\\nLOCK-PID:%s\\n' \"$__jj_record_pid\"\n")
+                        out = t.until(b'\r\nLOCK-PID:')
+                        self.assertNotIn(b'visit store busy', out)
+                    finally:
+                        t.close()
+                    time.sleep(.7)
+                    db.rollback()
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    rows = self.rows()
+                    if rows.get(str(self.alpha)) == rows.get(str(self.beta)) == 2:
+                        break
+                    time.sleep(.01)
+                self.assertEqual(rows.get(str(self.alpha)), 2, rows)
+                self.assertEqual(rows.get(str(self.beta)), 2, rows)
+
+    def test_stopped_worker_is_retained_and_serializes_later_visits(self):
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
+            db.execute('BEGIN EXCLUSIVE')
+            pid = int(self.cli('observe', '--', self.beta, cwd=self.beta).stdout)
+            child = None
             try:
-                result = self.cli('observe', '--', self.beta, cwd=self.beta, code=7)
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    rows = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,stat='],
+                                                   text=True).splitlines()
+                    children = [int(row.split()[0]) for row in rows
+                                if int(row.split()[1]) == pid and
+                                not row.split()[2].startswith('Z')]
+                    self.assertLessEqual(len(children), 1)
+                    if children:
+                        child = children[0]
+                        os.kill(child, signal.SIGSTOP)
+                        break
+                    time.sleep(.005)
+                self.assertIsNotNone(child)
+                for _ in range(3):
+                    self.assertEqual(int(self.cli('observe', '--', self.beta,
+                                                 cwd=self.beta).stdout), pid)
+                time.sleep(.4)
+                os.kill(child, 0)  # The former 250ms kill would discard this event.
             finally:
                 db.rollback()
-        self.assertLess(time.monotonic() - started, .5)
-        self.assertEqual(result.stdout, b'')
-        self.assertIn(b'visit store busy', result.stderr)
-        self.assertNotIn(str(self.beta), self.rows())
+                if child is not None:
+                    os.kill(child, signal.SIGCONT)
+        deadline = time.monotonic() + 3
+        while self.rows().get(str(self.beta)) != 4 and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(self.rows().get(str(self.beta)), 4)
 
     def test_submission_waits_for_an_owner_critical_section(self):
         inbox = self.root / 'state/cache/observer'
@@ -207,16 +260,70 @@ class ObserverQueue(unittest.TestCase):
                 self.assertFalse((self.home / 'PWNED').exists())
 
     def test_queued_events_cannot_restore_cleared_or_forgotten_history(self):
-        for operation in ('clear', 'forget'):
+        for operation in ('clear', 'forget', 'restore'):
             with self.subTest(operation=operation):
+                backup = self.root / 'backup.json'
+                if operation == 'restore':
+                    self.cli('history', 'backup', backup)
                 with self.suspended_owner() as pid:
                     result = self.cli('observe', '--', self.beta, cwd=self.beta)
                     self.assertEqual(int(result.stdout), pid)
                     args = ['history', operation, '--apply']
                     if operation == 'forget':
                         args += ['--', self.beta]
+                    elif operation == 'restore':
+                        args += [backup]
                     self.cli(*args)
                 self.assertNotIn(str(self.beta), self.rows())
+
+    def test_replaced_store_invalidates_older_queued_visits(self):
+        with self.suspended_owner() as pid:
+            self.assertEqual(int(self.cli('observe', '--', self.beta, cwd=self.beta).stdout), pid)
+            self.db.rename(self.db.with_suffix('.old'))
+            self.cli('record', '--', self.seed, cwd=self.seed)
+        self.assertNotIn(str(self.beta), self.rows())
+
+    def test_history_fence_files_refuse_shared_permissions_and_links(self):
+        self.cli('history', 'clear', '--apply')
+        for name in ('observation.lock', 'observation.epoch'):
+            path = self.db.parent / name
+            with self.subTest(file=name, problem='permissions'):
+                path.chmod(0o644)
+                try:
+                    self.assertEqual(self.cli('observe', '--', self.beta,
+                                              cwd=self.beta, code=7).stdout, b'')
+                finally:
+                    path.chmod(0o600)
+            with self.subTest(file=name, problem='symlink'):
+                held = path.with_suffix('.held')
+                path.rename(held)
+                path.symlink_to(held)
+                try:
+                    self.assertEqual(self.cli('observe', '--', self.beta,
+                                              cwd=self.beta, code=7).stdout, b'')
+                finally:
+                    path.unlink()
+                    held.rename(path)
+            with self.subTest(file=name, problem='hardlink'):
+                alias = path.with_suffix('.alias')
+                os.link(path, alias)
+                try:
+                    self.assertEqual(self.cli('observe', '--', self.beta,
+                                              cwd=self.beta, code=7).stdout, b'')
+                finally:
+                    alias.unlink()
+        self.assertNotIn(str(self.beta), self.rows())
+
+    def test_pruning_invalidates_older_queued_visits(self):
+        gone = self.home / 'gone'
+        gone.mkdir()
+        self.cli('record', '--', gone, cwd=gone)
+        gone.rmdir()
+        with self.suspended_owner() as pid:
+            self.assertEqual(int(self.cli('observe', '--', self.beta, cwd=self.beta).stdout), pid)
+            self.cli('history', 'prune', '--apply')
+        self.assertNotIn(str(self.beta), self.rows())
+        self.assertNotIn(str(gone), self.rows())
 
     def test_queued_events_recheck_tracking_and_exclusions(self):
         for field, value in (('tracking', 'off'), ('exclude', None)):

@@ -2,14 +2,14 @@
 //! changed prompts enqueue even while its previous worker is still running.
 use crate::{
     Error, Result,
-    config::{Paths, private_dir, private_file, private_read},
+    config::{Paths, atomic_write, private_dir, private_file, private_read},
     store::Store,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::{
@@ -23,10 +23,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-// Cover one preceding worker's lifetime plus reaping, sharing this deadline
-// between the generation snapshot and queue coordination/backpressure.
+// Bound foreground queue coordination; database waits happen only in the worker.
 const SUBMIT_BUDGET: Duration = Duration::from_millis(300);
-const WORKER_BUDGET: Duration = Duration::from_millis(250);
 const MAX_PENDING: usize = 128;
 const MAX_EVENT: usize = 32768;
 
@@ -37,12 +35,118 @@ fn unavailable() -> Error {
     )
 }
 
+/// Shared by submissions and record attempts; destructive history operations
+/// take the exclusive lock. Ordinary visit writers never block submissions.
+pub fn history_lock(data: &Path, exclusive: bool, deadline: Instant) -> Result<File> {
+    private_dir(data)?;
+    let lock = private_file(&data.join("observation.lock"))?;
+    loop {
+        let result = if exclusive {
+            fs2::FileExt::try_lock_exclusive(&lock)
+        } else {
+            fs2::FileExt::try_lock_shared(&lock)
+        };
+        if result.is_ok() {
+            return Ok(lock);
+        }
+        if Instant::now() >= deadline {
+            return Err(Error(7, "visit history changing; retry shortly".into()));
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Caller holds the exclusive history lock (or the shared lock and submit lock
+/// on first use). Rotate before destructive SQL so a crash cannot replay visits
+/// from before a successful deletion. A failed deletion may invalidate queued
+/// visits conservatively, but never restores deleted history.
+pub fn rotate_epoch(data: &Path) -> Result<()> {
+    let path = data.join("observation.epoch");
+    if fs::symlink_metadata(&path).is_ok() {
+        private_read(&path, 32)?;
+    }
+    let mut random = [0u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut random))
+        .map_err(|_| unavailable())?;
+    atomic_write(&path, &crate::digest(&random).as_bytes()[..32])
+}
+
+fn epoch(data: &Path) -> Result<String> {
+    let bytes = private_read(&data.join("observation.epoch"), 32)?;
+    if bytes.len() != 32 || !bytes.iter().all(u8::is_ascii_hexdigit) {
+        return Err(unavailable());
+    }
+    String::from_utf8(bytes).map_err(|_| unavailable())
+}
+
+// Bind existing stores without opening SQLite. Replacing the database file
+// must invalidate old queued events even if the private epoch file remains.
+fn store_id(data: &Path) -> Result<Option<String>> {
+    match fs::symlink_metadata(data.join("visits.db")) {
+        Ok(m)
+            if m.is_file()
+                && m.uid() == unsafe { libc::geteuid() }
+                && m.mode() & 0o077 == 0
+                && m.nlink() == 1 =>
+        {
+            Ok(Some(format!("{}:{}", m.dev(), m.ino())))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        _ => Err(unavailable()),
+    }
+}
+
+/// Retry only contention, after releasing both privacy/history guards. There is
+/// no commit timeout: killing a worker during fsync can silently discard a visit.
+/// Each unsuccessful SQLite transaction rolls back before the next attempt;
+/// Store::record never returns a pruning error after its visit has committed.
+pub fn record_event(
+    paths: &Paths,
+    path: &Path,
+    expected: &str,
+    expected_store: Option<&str>,
+) -> Result<()> {
+    loop {
+        let attempt = (|| {
+            let _history = history_lock(&paths.data, false, Instant::now())?;
+            let actual_store = store_id(&paths.data)?;
+            if epoch(&paths.data)? != expected
+                || expected_store.is_some_and(|id| actual_store.as_deref() != Some(id))
+            {
+                return Ok(());
+            }
+            let _policy = paths.policy_lock()?;
+            let cfg = paths.load()?;
+            if !cfg.tracking {
+                return Ok(());
+            }
+            let mut db = Store::open(paths, true)?;
+            db.record(paths, &cfg, path, None)
+        })();
+        match attempt {
+            Err(Error(7, ref message))
+                if matches!(
+                    message.as_ref(),
+                    "visit store busy; retry shortly"
+                        | "visit history changing; retry shortly"
+                        | "privacy configuration changing; retry operation"
+                ) =>
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            result => return result,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Event {
     path: PathBuf,
     cwd: PathBuf,
-    generation: String,
+    epoch: String,
+    store_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -191,23 +295,29 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
             "logical PWD does not identify current directory".into(),
         ));
     }
-    let generation = Store::observation_generation(&paths, deadline)?;
     if fingerprint != paths.fingerprint()? {
         return Err(unavailable());
+    }
+    let _history = history_lock(&paths.data, false, deadline)?;
+    let inbox = Inbox::new(&paths)?;
+    // Submission and empty-queue retirement share this lock. A successful send
+    // cannot land in the gap between an owner's final receive and its exit.
+    let _submission = submission_lock(&inbox, deadline)?;
+    if fs::symlink_metadata(paths.data.join("observation.epoch"))
+        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    {
+        rotate_epoch(&paths.data)?;
     }
     let bytes = serde_json::to_vec(&Event {
         path,
         cwd,
-        generation,
+        epoch: epoch(&paths.data)?,
+        store_id: store_id(&paths.data)?,
     })
     .map_err(|_| unavailable())?;
     if bytes.len() > MAX_EVENT {
         return Err(unavailable());
     }
-    let inbox = Inbox::new(&paths)?;
-    // Submission and empty-queue retirement share this lock. A successful send
-    // cannot land in the gap between an owner's final receive and its exit.
-    let _submission = submission_lock(&inbox, deadline)?;
     let owner = private_file(&inbox.dir.join("owner.lock"))?;
     if fs2::FileExt::try_lock_exclusive(&owner).is_ok() {
         inbox.remove_socket()?;
@@ -293,33 +403,25 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
 
 struct Worker {
     child: Child,
-    started: Instant,
 }
 impl Worker {
     fn start(paths: &Paths, event: Event) -> Result<Self> {
-        let child = command(paths, "record")?
-            .arg("--generation")
-            .arg(event.generation)
+        let mut command = command(paths, "observe-record")?;
+        command.arg("--epoch").arg(event.epoch);
+        if let Some(id) = event.store_id {
+            command.arg("--store-id").arg(id);
+        }
+        let child = command
             .arg("--")
             .arg(&event.path)
             .current_dir(event.cwd)
             .env("PWD", &event.path)
             .spawn()
             .map_err(|_| unavailable())?;
-        Ok(Self {
-            child,
-            started: Instant::now(),
-        })
+        Ok(Self { child })
     }
     fn finished(&mut self) -> Result<bool> {
-        if self.child.try_wait().map_err(|_| unavailable())?.is_some() {
-            return Ok(true);
-        }
-        if self.started.elapsed() >= WORKER_BUDGET {
-            self.reap()?;
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(self.child.try_wait().map_err(|_| unavailable())?.is_some())
     }
     fn reap(&mut self) -> Result<()> {
         let _ = self.child.kill();

@@ -13,6 +13,7 @@ use std::{
 pub struct Store {
     pub db: Connection,
     budget: Duration,
+    data: std::path::PathBuf,
 }
 fn db_err(e: rusqlite::Error) -> Error {
     if is_busy(&e) {
@@ -79,9 +80,9 @@ fn private_sidecar(path: &Path) -> Result<()> {
 }
 /// Total time a write may spend waiting for another writer before it gives up.
 ///
-/// The prompt-hook worker is SIGKILLed by its supervisor at 250 ms, so its wait
-/// must stay a small fraction of that: a worker killed mid-commit is a silent
-/// loss. A direct command is not time-boxed and may wait longer.
+/// An observation worker retries contention between short attempts, releasing
+/// privacy/history locks each time. A direct record command returns busy after
+/// this attempt; other direct commands may wait longer.
 fn write_budget(hook: bool) -> Duration {
     if hook {
         Duration::from_millis(30)
@@ -143,23 +144,6 @@ fn is_empty_file(path: &Path) -> bool {
 impl Store {
     pub fn open(paths: &Paths, hook: bool) -> Result<Self> {
         Self::open_with_budget(paths, write_budget(hook))
-    }
-    /// Snapshot a prompt event before enqueueing it. Unlike a record worker,
-    /// this reader is not under the supervisor's 250 ms kill deadline. Give a
-    /// preceding rollback-journal commit the worker's full 250 ms lifetime,
-    /// plus 50 ms to reap it, instead of rejecting the next event at the
-    /// worker's 30 ms write-wait limit. Share the submitter's deadline across
-    /// both reads, leaving only the remaining time for queue coordination.
-    pub fn observation_generation(paths: &Paths, deadline: std::time::Instant) -> Result<String> {
-        let store = Self::open_with_budget(
-            paths,
-            deadline.saturating_duration_since(std::time::Instant::now()),
-        )?;
-        store
-            .db
-            .busy_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-            .map_err(db_err)?;
-        store.event_generation()
     }
     fn open_with_budget(paths: &Paths, budget: Duration) -> Result<Self> {
         let deadline = std::time::Instant::now() + budget;
@@ -232,7 +216,11 @@ impl Store {
                     .into(),
             ));
         }
-        Ok(Self { db, budget })
+        Ok(Self {
+            db,
+            budget,
+            data: paths.data.clone(),
+        })
     }
     pub fn generation(&self) -> Result<String> {
         self.db
@@ -407,7 +395,13 @@ impl Store {
             .map(|c| (c.id[1..].parse::<i64>().unwrap(), c.last_seen))
             .collect();
         if apply && !ids.is_empty() {
+            let _history = crate::observer::history_lock(
+                &self.data,
+                true,
+                std::time::Instant::now() + self.budget,
+            )?;
             with_immediate_tx(&mut self.db, self.budget, |tx| {
+                crate::observer::rotate_epoch(&self.data)?;
                 for (id, last) in &ids {
                     tx.execute(
                         "DELETE FROM visits WHERE id=?1 AND last_seen=?2",
@@ -426,6 +420,15 @@ impl Store {
         Ok(ids.len())
     }
     pub fn clear(&mut self, path: Option<&str>, apply: bool) -> Result<i64> {
+        let _history = if apply {
+            Some(crate::observer::history_lock(
+                &self.data,
+                true,
+                std::time::Instant::now() + self.budget,
+            )?)
+        } else {
+            None
+        };
         with_immediate_tx(&mut self.db, self.budget, |tx| {
             let count = tx
                 .query_row(
@@ -435,6 +438,7 @@ impl Store {
                 )
                 .map_err(db_err)?;
             if apply {
+                crate::observer::rotate_epoch(&self.data)?;
                 tx.execute("DELETE FROM visits WHERE ?1 IS NULL OR path=?1", [path])
                     .map_err(db_err)?;
                 tx.execute(

@@ -75,9 +75,17 @@ enum Command {
         generation: Option<String>,
         path: PathBuf,
     },
-    /// Internal prompt observer; stdout is only its bounded supervisor PID.
+    /// Internal prompt observer; stdout is only its supervisor PID.
     #[command(hide = true)]
     Observe { path: PathBuf },
+    #[command(hide = true)]
+    ObserveRecord {
+        #[arg(long)]
+        epoch: String,
+        #[arg(long)]
+        store_id: Option<String>,
+        path: PathBuf,
+    },
     #[command(hide = true)]
     ObserveSupervise {
         #[arg(long)]
@@ -1531,6 +1539,14 @@ fn run() -> Result<()> {
         return j_jump::observer::supervise(Paths::discover(cli.config)?, socket_fd, owner_fd);
     }
     let paths = Paths::discover(cli.config)?;
+    if let Some(Command::ObserveRecord {
+        ref path,
+        ref epoch,
+        ref store_id,
+    }) = cli.command
+    {
+        return j_jump::observer::record_event(&paths, path, epoch, store_id.as_deref());
+    }
     if let Some(Command::AdapterServe) = cli.command {
         return adapter::serve(paths);
     }
@@ -1539,6 +1555,7 @@ fn run() -> Result<()> {
         Some(Command::Shell { .. })
         | Some(Command::Init { .. })
         | Some(Command::Observe { .. })
+        | Some(Command::ObserveRecord { .. })
         | Some(Command::ObserveSupervise { .. })
         | Some(Command::AdapterServe) => unreachable!(),
         Some(Command::Adapter { action }) => {
@@ -1910,10 +1927,16 @@ fn run() -> Result<()> {
                         ));
                     }
                     if apply {
+                        let _history = j_jump::observer::history_lock(
+                            &paths.data,
+                            true,
+                            Instant::now() + std::time::Duration::from_millis(600),
+                        )?;
                         let tx = db
                             .db
                             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                             .map_err(|_| Error(7, "store busy; restore not applied".into()))?;
+                        j_jump::observer::rotate_epoch(&paths.data)?;
                         tx.execute("DELETE FROM visits", [])
                             .map_err(|_| Error(7, "restore failed".into()))?;
                         for r in &backup.records {

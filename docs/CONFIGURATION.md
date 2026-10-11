@@ -203,7 +203,7 @@ jjump config set exclude '["/work/scratch"]'
 
 ## History and data
 
-J-Jump records the folder you're in each time your prompt appears after a directory change. It never records commands. Rapid changes queue behind the current writer, so accepted visits finish even if no further prompt appears. The private queue holds up to 128 outstanding visits per profile; store errors, queue saturation or process failure can still prevent recording. Clearing or forgetting history invalidates older queued visits, and tracking/exclusion settings are checked again before writing.
+J-Jump records the folder you're in each time your prompt appears after a directory change. It never records commands. Rapid changes queue behind the current writer, so accepted visits finish even if no further prompt appears. Submission does not open SQLite. One background worker retries temporary database contention without a commit timeout, so a slow write does not discard an accepted visit. The private queue holds up to 128 outstanding visits per profile; permanent store errors, queue saturation or process failure can still prevent recording. Clearing, forgetting, pruning or restoring history invalidates older queued visits through a private history epoch; replacing an existing store file also invalidates them. Tracking/exclusion settings are checked again on every write attempt. A permanently locked store keeps its worker and bounded queue alive until the lock is released or history is invalidated.
 
 ```sh
 jjump history list

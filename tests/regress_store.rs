@@ -405,13 +405,11 @@ fn every_state_opener_applies_the_leaf_checks() {
     fs::remove_file(&journal).unwrap();
 }
 
-/// AC-008: a hook write must give up inside the supervisor's 250 ms kill window.
-/// A worker SIGKILLed mid-commit silently loses the visit, so the bounded retry
-/// must leave time for the supervisor to reap it. The 200 ms limit includes
-/// process startup and leaves 50 ms of headroom. Best of two runs tolerates one
-/// scheduling hiccup while still rejecting the direct-command wait budget.
+/// A direct record attempt returns busy promptly. Observation workers retry
+/// these short attempts after releasing history/privacy locks; they are never
+/// killed because a commit is slow. Best of two tolerates a scheduling hiccup.
 #[test]
-fn hook_write_gives_up_inside_the_supervisor_budget() {
+fn direct_record_attempt_returns_busy_promptly() {
     use std::time::{Duration, Instant};
     let b = Bank::new();
     assert_eq!(b.record().status.code(), Some(0));
@@ -429,7 +427,7 @@ fn hook_write_gives_up_inside_the_supervisor_budget() {
     }
     assert!(
         best < Duration::from_millis(200),
-        "hook write waited {best:?}, past the supervisor kill point"
+        "hook write waited {best:?}, past the direct record attempt budget"
     );
     assert_eq!(b.rows(), 1, "a failed hook write must not change the store");
 }

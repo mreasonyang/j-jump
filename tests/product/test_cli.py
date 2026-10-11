@@ -96,19 +96,21 @@ class ProductCLI(unittest.TestCase):
   for p in jobs:
    out,err=p.communicate(timeout=5);self.assertEqual(out,b'');self.assertIn(p.returncode,[0,7]);success+=p.returncode==0
   self.assertEqual(self.rows(),[(str(self.a),success)])
- def test_observer_busy_store_bounded(self):
+ def test_observer_busy_store_submits_promptly_and_retries_until_commit(self):
   import time
   self.record(self.a);db=sqlite3.connect(self.root/'state/data/visits.db');db.execute('begin immediate')
-  t=time.monotonic();r=self.cli('observe','--',self.a,cwd=self.a);elapsed=time.monotonic()-t
-  pid=int(r.stdout.strip());self.assertGreater(pid,0);self.assertLess(elapsed,.1)
-  os.kill(pid,0) # The shell must be able to guard the still-running supervisor.
+  try:
+   t=time.monotonic();r=self.cli('observe','--',self.a,cwd=self.a);elapsed=time.monotonic()-t
+   pid=int(r.stdout.strip());self.assertGreater(pid,0);self.assertLess(elapsed,.1)
+   time.sleep(.4);os.kill(pid,0)
+  finally:db.rollback();db.close()
   deadline=time.monotonic()+2
   while time.monotonic()<deadline:
    try:os.kill(pid,0)
    except ProcessLookupError:break
    time.sleep(.01)
-  else:self.fail('supervisor did not exit after the bounded worker was killed')
-  db.rollback();db.close();self.assertEqual(self.rows(),[(str(self.a),1)])
+  else:self.fail('supervisor did not drain after the database lock was released')
+  self.assertEqual(self.rows(),[(str(self.a),2)])
  def test_observer_marker_stays_live_until_supervisor_can_reap(self):
   import time,signal
   self.record(self.a);db=sqlite3.connect(self.root/'state/data/visits.db');db.execute('begin immediate')
@@ -119,9 +121,10 @@ class ProductCLI(unittest.TestCase):
     try:os.kill(candidate,signal.SIGSTOP);pid=candidate;break
     except ProcessLookupError:continue
    self.assertIsNotNone(pid,'no live supervisor PID to suspend')
-   time.sleep(.12) # The worker can finish or be killed, but cannot be reaped yet.
+   time.sleep(.12) # The worker is retained while the database is busy.
    os.kill(pid,0) # The shell must still see one outstanding observation.
   finally:
+   db.rollback();db.close()
    if pid is not None:os.kill(pid,signal.SIGCONT)
   deadline=time.monotonic()+2
   while time.monotonic()<deadline:
@@ -129,7 +132,7 @@ class ProductCLI(unittest.TestCase):
    except ProcessLookupError:break
    time.sleep(.01)
   else:self.fail('resumed supervisor did not reap and exit')
-  db.rollback();db.close();self.assertEqual(self.rows(),[(str(self.a),1)])
+  self.assertEqual(self.rows(),[(str(self.a),2)])
  def test_observer_normal_write_reaped_and_stdout_is_pid_only(self):
   import time
   self.record(self.b)
