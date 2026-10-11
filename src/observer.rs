@@ -162,12 +162,14 @@ struct Inbox {
 }
 impl Inbox {
     fn new(paths: &Paths) -> Result<Self> {
-        let dir = paths.cache.join("observer");
+        // This event format uses a history fence instead of a DB generation.
+        // Never submit it to a still-live supervisor from the previous format.
+        let dir = paths.cache.join("observer-v2");
         private_dir(&dir)?;
         // Unix socket names must fit even with a long HOME/XDG profile path.
         // The socket is private and checked before use; all lock/PID files live
         // in the private profile. No directory names are written to the inbox.
-        let identity = serde_json::to_vec(&(&paths.config, &paths.data, &paths.cache))
+        let identity = serde_json::to_vec(&(2, &paths.config, &paths.data, &paths.cache))
             .map_err(|_| unavailable())?;
         let base = if cfg!(target_os = "macos") {
             "/private/tmp"

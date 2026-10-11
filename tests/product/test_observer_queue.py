@@ -144,8 +144,31 @@ class ObserverQueue(unittest.TestCase):
             time.sleep(.01)
         self.assertEqual(self.rows().get(str(self.beta)), 4)
 
+    def test_current_queue_is_independent_of_previous_protocol_locks(self):
+        # An old supervisor may still own its protocol while a new executable
+        # is installed. Never acknowledge a new event to that old inbox.
+        import json
+        old = self.root / 'state/cache/observer'
+        old.parent.mkdir(mode=0o700)
+        old.mkdir(mode=0o700)
+        state = old / 'owner.json'
+        state.write_text(json.dumps({'pid': os.getpid(), 'outstanding': 1}))
+        state.chmod(0o600)
+        original = state.read_bytes()
+        with (old / 'submit.lock').open('w') as submit, (old / 'owner.lock').open('w') as owner:
+            for file in (submit, owner):
+                os.fchmod(file.fileno(), 0o600)
+                fcntl.flock(file, fcntl.LOCK_EX)
+            result = self.cli('observe', '--', self.beta, cwd=self.beta)
+            self.assertNotEqual(int(result.stdout), os.getpid())
+            deadline = time.monotonic() + 2
+            while self.rows().get(str(self.beta)) != 1 and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertEqual(self.rows().get(str(self.beta)), 1)
+            self.assertEqual(state.read_bytes(), original)
+
     def test_submission_waits_for_an_owner_critical_section(self):
-        inbox = self.root / 'state/cache/observer'
+        inbox = self.root / 'state/cache/observer-v2'
         inbox.parent.mkdir(mode=0o700, exist_ok=True)
         inbox.mkdir(mode=0o700, exist_ok=True)
         lock = inbox / 'submit.lock'
