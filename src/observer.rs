@@ -134,7 +134,10 @@ fn submission_lock(inbox: &Inbox, deadline: Instant) -> Result<File> {
             return Ok(lock);
         }
         if Instant::now() >= deadline {
-            return Err(unavailable());
+            return Err(Error(
+                7,
+                "prompt observation coordination busy; retry on the next prompt".into(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -185,7 +188,7 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
             "logical PWD does not identify current directory".into(),
         ));
     }
-    let generation = Store::open(&paths, true)?.event_generation()?;
+    let generation = Store::observation_generation(&paths)?;
     if fingerprint != paths.fingerprint()? {
         return Err(unavailable());
     }
@@ -249,7 +252,10 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
     }
     let mut state = inbox.state()?;
     if state.outstanding == MAX_PENDING {
-        return Err(unavailable());
+        return Err(Error(
+            7,
+            "prompt observation queue full; retry on the next prompt".into(),
+        ));
     }
     let sender = UnixDatagram::unbound().map_err(|_| unavailable())?;
     sender
@@ -263,9 +269,18 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
     // and active worker together, independently of OS socket buffer settings.
     state.outstanding += 1;
     inbox.set_state(Some(&state))?;
-    if sender.send_to(&bytes, &inbox.socket).is_err() {
+    if let Err(error) = sender.send_to(&bytes, &inbox.socket) {
         state.outstanding -= 1;
         let _ = inbox.set_state(Some(&state));
+        if matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ) {
+            return Err(Error(
+                7,
+                "prompt observation inbox full; retry on the next prompt".into(),
+            ));
+        }
         return Err(unavailable());
     }
     // Acceptance means the complete event is in the owned inbox. The shell

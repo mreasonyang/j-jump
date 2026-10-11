@@ -142,6 +142,24 @@ fn is_empty_file(path: &Path) -> bool {
 }
 impl Store {
     pub fn open(paths: &Paths, hook: bool) -> Result<Self> {
+        Self::open_with_budget(paths, write_budget(hook))
+    }
+    /// Snapshot a prompt event before enqueueing it. Unlike a record worker,
+    /// this reader is not under the supervisor's 250 ms kill deadline. Give a
+    /// preceding rollback-journal commit the worker's full 250 ms lifetime,
+    /// plus 50 ms to reap it, instead of rejecting the next event at the
+    /// worker's 30 ms write-wait limit. Share one wait budget across both reads.
+    pub fn observation_generation(paths: &Paths) -> Result<String> {
+        let budget = Duration::from_millis(300);
+        let started = std::time::Instant::now();
+        let store = Self::open_with_budget(paths, budget)?;
+        store
+            .db
+            .busy_timeout(budget.saturating_sub(started.elapsed()))
+            .map_err(db_err)?;
+        store.event_generation()
+    }
+    fn open_with_budget(paths: &Paths, budget: Duration) -> Result<Self> {
         private_dir(&paths.data)?;
         let path = paths.data.join("visits.db");
         // SQLite never leaves a zero-length database behind, so bytes that are
@@ -167,7 +185,6 @@ impl Store {
             private_sidecar(&paths.data.join(format!("visits.db{suffix}")))?;
         }
         let mut db = Connection::open(path).map_err(db_err)?;
-        let budget = write_budget(hook);
         db.busy_timeout(budget).map_err(db_err)?;
         let version: i64 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))

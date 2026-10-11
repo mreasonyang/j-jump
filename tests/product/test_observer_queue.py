@@ -55,6 +55,41 @@ class ObserverQueue(unittest.TestCase):
         with contextlib.closing(sqlite3.connect(self.db)) as db:
             return dict(db.execute('SELECT path,count FROM visits'))
 
+    def test_generation_snapshot_waits_for_a_previous_commit(self):
+        # A rollback-journal writer briefly holds EXCLUSIVE during disk sync.
+        # The old 30 ms worker budget rejected this foreground snapshot before
+        # the event could enter the queue, even though no worker was stuck.
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
+            db.execute('BEGIN EXCLUSIVE')
+            child = subprocess.Popen([str(BIN), 'observe', '--', str(self.beta)],
+                                     cwd=self.beta, env=dict(self.env, PWD=str(self.beta)),
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                time.sleep(.2)
+                self.assertIsNone(child.poll(), 'snapshot gave up before the commit finished')
+            finally:
+                db.rollback()
+                out, err = child.communicate(timeout=2)
+        self.assertEqual(child.returncode, 0, err)
+        self.assertGreater(int(out), 1)
+        deadline = time.monotonic() + 2
+        while self.rows().get(str(self.beta)) != 1 and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(self.rows().get(str(self.beta)), 1)
+
+    def test_generation_snapshot_still_refuses_a_stuck_store_promptly(self):
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
+            db.execute('BEGIN EXCLUSIVE')
+            started = time.monotonic()
+            try:
+                result = self.cli('observe', '--', self.beta, cwd=self.beta, code=7)
+            finally:
+                db.rollback()
+        self.assertLess(time.monotonic() - started, .5)
+        self.assertEqual(result.stdout, b'')
+        self.assertIn(b'visit store busy', result.stderr)
+        self.assertNotIn(str(self.beta), self.rows())
+
     @contextlib.contextmanager
     def suspended_owner(self):
         # The DB lock ensures observe's supervisor is still alive when stopped.
