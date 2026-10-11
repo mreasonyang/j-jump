@@ -179,6 +179,9 @@ enum CredentialCommand {
     Delete {
         #[arg(long)]
         apply: bool,
+        /// Delete the stored key of this custom definition id, whatever provider is selected.
+        #[arg(long, value_name = "ID")]
+        definition: Option<String>,
     },
 }
 #[derive(Subcommand)]
@@ -1030,14 +1033,29 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
             let fingerprint = paths.fingerprint()?;
             let mut cfg = paths.load_for_repair()?;
             ui::configure(&cfg.language);
+            let dsl = j_jump::config::Provider::parse("dsl")?;
+            let stored = {
+                let mut old = cfg.clone();
+                old.provider = dsl;
+                old.credential_source() == "system"
+            };
             let previous = cfg.api_definition.take();
             let rejected = cfg.rejected_definition.take().is_some();
             let same = previous
                 .as_ref()
                 .is_some_and(|d| d.identity() == definition.identity());
+            let orphan = previous
+                .as_ref()
+                .filter(|d| stored && d.id != definition.id)
+                .map(|d| d.id.clone());
             let summary = import_summary(&definition);
             cfg.api_definition = Some(definition);
-            j_jump::providers::select(&mut cfg, j_jump::config::Provider::parse("dsl")?)?;
+            j_jump::providers::select(&mut cfg, dsl)?;
+            // A new recipient needs fresh consent; an identical re-import keeps it.
+            let reset = !same && cfg.consent == "always";
+            if reset {
+                cfg.consent = "ask".into();
+            }
             if !same {
                 cfg.set_credential_source("environment");
             }
@@ -1065,12 +1083,26 @@ fn config(paths: &Paths, cmd: ConfigCommand, offline: bool) -> Result<()> {
                     )
                 );
             }
+            if let Some(id) = orphan {
+                println!(
+                    "{} {id} {} jjump credential delete --definition {id} --apply",
+                    ui::tr("The stored key for", "已保留"),
+                    ui::tr("was kept; delete it with", "的已存储 Key；如需删除请运行"),
+                );
+            }
             println!(
                 "{}",
-                ui::tr(
-                    "Semantic setting and consent preserved; no request sent.",
-                    "语义开关与请求许可保持不变；未发送请求。"
-                )
+                if reset {
+                    ui::tr(
+                        "Semantic setting preserved; consent reset to ask because the endpoint is new; no request sent.",
+                        "语义开关保持不变；因服务端点为新端点，请求许可已重置为每次询问；未发送请求。",
+                    )
+                } else {
+                    ui::tr(
+                        "Semantic setting and consent preserved; no request sent.",
+                        "语义开关与请求许可保持不变；未发送请求。",
+                    )
+                }
             );
             Ok(())
         }
@@ -1673,7 +1705,42 @@ fn run() -> Result<()> {
                 );
                 Ok(())
             }
-            CredentialCommand::Delete { apply } => {
+            CredentialCommand::Delete {
+                apply,
+                definition: Some(id),
+            } => {
+                j_jump::credential::check_definition_id(&id)?;
+                ui::configure(&paths.load_for_repair()?.language);
+                if apply {
+                    let _credential_lock = paths.credential_lock(true)?;
+                    paths.rotate_credential_epoch()?;
+                    j_jump::credential::delete_definition(&id)?;
+                }
+                println!(
+                    "{} {} {}",
+                    ui::tr(
+                        "Custom API OS credential entry for",
+                        "自定义 API 的系统凭证条目："
+                    ),
+                    id,
+                    if apply {
+                        ui::tr(
+                            "deleted. Environment and provider account key are unchanged; revoke at the provider separately.",
+                            "已删除。环境变量与服务商账户 Key 未改变；请另行在服务商处撤销。",
+                        )
+                    } else {
+                        ui::tr(
+                            "would be deleted; add --apply.",
+                            "将被删除；添加 --apply 以执行。",
+                        )
+                    }
+                );
+                Ok(())
+            }
+            CredentialCommand::Delete {
+                apply,
+                definition: None,
+            } => {
                 paths.load()?.require_definition()?;
                 if !paths.load()?.needs_credentials() {
                     return Err(Error(

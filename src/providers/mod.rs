@@ -85,19 +85,31 @@ pub trait ProviderDriver: Sync {
         CLOUD
     }
     fn connection(&self, cfg: &Config, context: Option<&str>) -> Result<Connection>;
-    fn prepare(&self, mut task: Value, model: &str) -> Result<Vec<u8>> {
+    /// The shipped wire definition this driver speaks, if it is a built-in.
+    fn wire(&self) -> Option<&'static BuiltinWire> {
+        None
+    }
+    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
         if !self.accepts_model(model) {
             return Err(Error(5, "unsupported request model".into()));
         }
-        task["model"] = model.into();
-        serde_json::to_vec(&task).map_err(|_| Error(5, "cannot encode provider task".into()))
+        let w = self.wire().ok_or_else(no_wire)?;
+        wire(w.id)
+            .prepare(task, model)
+            .map_err(wire_error(w.request_error))
     }
     fn decode(&self, value: Value) -> Result<Value> {
-        Ok(value)
+        let w = self.wire().ok_or_else(no_wire)?;
+        wire(w.id)
+            .decode(value)
+            .map_err(wire_error(w.response_error))
     }
     /// Recover the named questions from the exact wire request for validation.
     fn questions(&self, request: &Value) -> Result<Value> {
-        Ok(request["questions"].clone())
+        let w = self.wire().ok_or_else(no_wire)?;
+        wire(w.id)
+            .questions(request)
+            .map_err(wire_error(w.request_error))
     }
     fn config_notice(&self, _cfg: &Config, _chinese: bool) -> Option<String> {
         None
@@ -242,6 +254,15 @@ impl crate::config::Provider {
     pub const OpenAI: Self = Self::builtin("openai");
 }
 
+/// A shipped wire and the provider-specific errors its failures report.
+pub struct BuiltinWire {
+    pub id: &'static str,
+    pub request_error: &'static str,
+    pub response_error: &'static str,
+}
+fn no_wire() -> Error {
+    Error(5, "provider has no wire definition".into())
+}
 /// Built-in wire failures keep their provider-specific meaning; resource limits stay distinct.
 fn wire_error(message: &'static str) -> impl Fn(Error) -> Error {
     move |e| {
@@ -357,6 +378,16 @@ mod tests {
                 context: String::new(),
                 transport: Transport::Loopback,
             })
+        }
+        fn prepare(&self, mut task: Value, model: &str) -> Result<Vec<u8>> {
+            task["model"] = model.into();
+            serde_json::to_vec(&task).map_err(|_| Error(5, "encode".into()))
+        }
+        fn decode(&self, value: Value) -> Result<Value> {
+            Ok(value)
+        }
+        fn questions(&self, request: &Value) -> Result<Value> {
+            Ok(request["questions"].clone())
         }
         fn diagnostic(&self, _: &Config, _: DiagnosticKind, _: &[Value]) -> Result<Diagnostic> {
             Ok(Diagnostic::Complete(

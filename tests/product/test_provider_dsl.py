@@ -2,6 +2,7 @@
 import contextlib
 import http.server
 import json
+import subprocess
 import threading
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 import test_0032_ux as ux
 import test_0036_first_use as first
 import test_tev1 as local
+from test_0037_setup_keys import FIXTURE
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,7 +98,8 @@ class ProviderDSL(unittest.TestCase):
 
     def test_import_is_offline_copied_and_preserves_policy(self):
         with self.server() as (url, requests):
-            self.import_definition(self.definition(url))
+            out = self.import_definition(self.definition(url)).stdout
+            self.assertIn(b'Semantic setting and consent preserved; no request sent.', out)
             config = json.loads(self.cli('config', 'show', '--json').stdout)
             self.assertEqual(config['saved']['provider'], 'dsl')
             self.assertFalse(config['saved']['semantic'])
@@ -113,6 +116,24 @@ class ProviderDSL(unittest.TestCase):
             self.cli('config', 'set', 'provider', 'jev')
             self.cli('config', 'set', 'provider', 'dsl')
             self.assertEqual(json.loads(self.cli('config', 'show', '--json').stdout)['saved']['api_definition']['id'], 'synthetic-local')
+
+    def test_new_endpoint_resets_consent_and_identical_reimport_keeps_it(self):
+        with self.server() as (url, requests):
+            self.configure(url)
+            moved = dict(self.definition(url), url=url.replace('/custom', '/moved'))
+            out = self.import_definition(moved).stdout
+            self.assertIn(b'Semantic setting preserved; consent reset to ask because the endpoint is new; no request sent.', out)
+            saved = json.loads(self.config.read_text())
+            self.assertEqual((saved['semantic'], saved['consent']), (True, 'ask'))
+            self.cli('config', 'set', 'consent', 'always')
+            out = self.import_definition(moved).stdout
+            self.assertIn(b'Semantic setting and consent preserved; no request sent.', out)
+            self.assertEqual(json.loads(self.config.read_text())['consent'], 'always')
+            self.env['J_JUMP_LANG'] = 'zh'
+            out = self.import_definition(self.definition(url)).stdout
+            self.assertIn('请求许可已重置为每次询问'.encode(), out)
+            self.assertEqual(json.loads(self.config.read_text())['consent'], 'ask')
+            self.assertEqual(requests, [])
 
     def test_invalid_import_never_changes_saved_configuration(self):
         with self.server() as (url, requests):
@@ -297,8 +318,32 @@ class ProviderDSL(unittest.TestCase):
         vercel['auth'] = {'type': 'header', 'name': 'x-api-key', 'env': 'AI_GATEWAY_API_KEY'}
         out = self.import_definition(vercel).stdout
         self.assertIn(b'Replaced definition openrouter-jev', out)
+        self.assertIn(b'The stored key for openrouter-jev was kept; delete it with '
+                      b'jjump credential delete --definition openrouter-jev --apply', out)
         self.assertIn(b'Authentication: header x-api-key from $AI_GATEWAY_API_KEY', out)
         self.assertEqual(json.loads(self.config.read_text())['providers']['dsl']['credential'], 'environment')
+        # Without a stored-key source there is nothing orphaned to mention.
+        self.assertNotIn(b'The stored key for', self.import_definition(jev).stdout)
+
+    def test_credential_delete_by_definition_id_regardless_of_selection(self):
+        self.import_definition(json.loads(self.cli('config', 'provider-example', 'openrouter-jev').stdout))
+        self.cli('config', 'set', 'provider', 'jev')
+        epoch = self.config.parent / 'credential.epoch'
+        for bad in ['../jev', 'Upper', '', 'x' * 65, 'a.b']:
+            result = self.cli('credential', 'delete', '--definition', bad, '--apply', code=2)
+            self.assertIn(b'definition id must be 1-64 lowercase letters, digits or -', result.stderr)
+        preview = self.cli('credential', 'delete', '--definition', 'old-gateway').stdout
+        self.assertIn(b'Custom API OS credential entry for old-gateway would be deleted; add --apply.', preview)
+        self.assertFalse(epoch.exists())
+        # --apply reaches a credential store, so it runs only in the memory-only fixture binary.
+        self.assertTrue(FIXTURE.is_file(), 'build the setup-credentials-fixture example first')
+        applied = subprocess.run([str(FIXTURE), 'credential', 'delete', '--definition', 'old-gateway', '--apply'],
+                                 env=dict(self.env, PWD=str(self.cwd)), cwd=self.cwd, capture_output=True, timeout=10)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertIn(b'FIXTURE: deleted j-jump.dsl.old-gateway/api-key from memory', applied.stderr)
+        self.assertIn(b'Custom API OS credential entry for old-gateway deleted.', applied.stdout)
+        self.assertTrue(epoch.exists())
+        self.assertEqual(json.loads(self.config.read_text())['provider'], 'jev')
 
     def test_provider_check_is_suggested_only_with_a_probe_plan(self):
         with self.server() as (url, _):

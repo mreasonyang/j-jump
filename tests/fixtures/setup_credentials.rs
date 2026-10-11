@@ -15,7 +15,8 @@ struct State {
     secret: Mutex<Option<Zeroizing<Vec<u8>>>>,
     failed: AtomicBool,
 }
-struct Memory(Arc<State>);
+/// Shared state plus the entry name, so deletions name exactly what they removed.
+struct Memory(Arc<State>, String);
 impl CredentialApi for Memory {
     fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
         if std::env::var_os("FIXTURE_FAIL_ONCE").is_some()
@@ -38,6 +39,7 @@ impl CredentialApi for Memory {
     }
     fn delete_credential(&self) -> keyring::Result<()> {
         *self.0.secret.lock().unwrap() = None;
+        eprintln!("FIXTURE: deleted {} from memory", self.1);
         Ok(())
     }
     fn as_any(&self) -> &dyn Any {
@@ -45,14 +47,22 @@ impl CredentialApi for Memory {
     }
 }
 impl CredentialBuilderApi for Memory {
-    fn build(&self, _: Option<&str>, _: &str, _: &str) -> keyring::Result<Box<Credential>> {
-        Ok(Box::new(Self(self.0.clone())))
+    fn build(
+        &self,
+        _: Option<&str>,
+        service: &str,
+        account: &str,
+    ) -> keyring::Result<Box<Credential>> {
+        Ok(Box::new(Self(
+            self.0.clone(),
+            format!("{service}/{account}"),
+        )))
     }
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
 fn main() {
-    keyring::set_default_credential_builder(Box::new(Memory(Arc::default())));
+    keyring::set_default_credential_builder(Box::new(Memory(Arc::default(), String::new())));
     cli::main();
 }

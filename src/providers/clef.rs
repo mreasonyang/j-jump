@@ -47,6 +47,13 @@ static DESCRIPTION: Descriptor = Descriptor {
     }),
 };
 impl ProviderDriver for Clef {
+    fn wire(&self) -> Option<&'static super::BuiltinWire> {
+        Some(&super::BuiltinWire {
+            id: "clef",
+            request_error: "Clef-Flash request schema mismatch",
+            response_error: "Clef-Flash returned an invalid or unsuccessful Cloudflare response",
+        })
+    }
     fn descriptor(&self) -> &'static Descriptor {
         &DESCRIPTION
     }
@@ -79,24 +86,6 @@ impl ProviderDriver for Clef {
             context: account,
             transport: Transport::Https,
         })
-    }
-    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
-        if !self.accepts_model(model) {
-            return Err(Error(5, "unsupported request model".into()));
-        }
-        super::wire("clef")
-            .prepare(task, model)
-            .map_err(super::wire_error("Clef-Flash request schema mismatch"))
-    }
-    fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("clef").decode(value).map_err(super::wire_error(
-            "Clef-Flash returned an invalid or unsuccessful Cloudflare response",
-        ))
-    }
-    fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("clef")
-            .questions(request)
-            .map_err(super::wire_error("Clef-Flash request schema mismatch"))
     }
     fn config_notice(&self, cfg: &Config, chinese: bool) -> Option<String> {
         if self.connection(cfg, None).is_ok() {

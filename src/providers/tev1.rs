@@ -99,6 +99,13 @@ static DESCRIPTION: Descriptor = Descriptor {
     credential: None,
 };
 impl ProviderDriver for Tev1 {
+    fn wire(&self) -> Option<&'static super::BuiltinWire> {
+        Some(&super::BuiltinWire {
+            id: "tev1",
+            request_error: "Tev1 4B request schema mismatch",
+            response_error: "Tev1 4B response schema mismatch",
+        })
+    }
     fn descriptor(&self) -> &'static Descriptor {
         &DESCRIPTION
     }
@@ -132,24 +139,6 @@ impl ProviderDriver for Tev1 {
             context: url,
             transport: Transport::Loopback,
         })
-    }
-    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
-        if !self.accepts_model(model) {
-            return Err(Error(5, "unsupported request model".into()));
-        }
-        super::wire("tev1")
-            .prepare(task, model)
-            .map_err(super::wire_error("Tev1 4B request schema mismatch"))
-    }
-    fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("tev1")
-            .decode(value)
-            .map_err(super::wire_error("Tev1 4B response schema mismatch"))
-    }
-    fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("tev1")
-            .questions(request)
-            .map_err(super::wire_error("Tev1 4B request schema mismatch"))
     }
     fn setup_help(&self, cfg: &Config, chinese: bool) -> Option<String> {
         let url = base(cfg);

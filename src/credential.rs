@@ -14,6 +14,12 @@ pub fn entry_identity(provider: Provider) -> (&'static str, &'static str) {
         .unwrap_or(("", ""))
 }
 fn entry(provider: Provider) -> Result<keyring::Entry> {
+    if provider.id() == "dsl" {
+        return Err(Error(
+            2,
+            "custom API credentials are keyed by definition; use the configured definition".into(),
+        ));
+    }
     if !provider.needs_credentials() {
         return Err(Error(
             2,
@@ -28,9 +34,6 @@ fn entry(provider: Provider) -> Result<keyring::Entry> {
         )
     })
 }
-pub fn system() -> Result<Option<Zeroizing<String>>> {
-    system_for(Provider::Jev)
-}
 pub fn system_for(provider: Provider) -> Result<Option<Zeroizing<String>>> {
     match entry(provider)?.get_password() {
         Ok(s) => Ok(Some(Zeroizing::new(s))),
@@ -40,9 +43,6 @@ pub fn system_for(provider: Provider) -> Result<Option<Zeroizing<String>>> {
             "system credential store locked or unavailable; no plaintext fallback".into(),
         )),
     }
-}
-pub fn get(source: &str) -> Result<Zeroizing<String>> {
-    get_for(Provider::Jev, source)
 }
 pub fn environment_name(provider: Provider) -> Option<&'static str> {
     provider
@@ -129,12 +129,41 @@ fn entry_config(cfg: &Config) -> Result<keyring::Entry> {
             "selected provider does not use credentials".into(),
         ));
     }
-    keyring::Entry::new(&format!("j-jump.dsl.{}", d.id), "api-key").map_err(|_| {
+    definition_entry(&d.id)
+}
+/// The one place custom entries are named: one entry per definition id.
+fn definition_entry(id: &str) -> Result<keyring::Entry> {
+    keyring::Entry::new(&format!("j-jump.dsl.{id}"), "api-key").map_err(|_| {
         Error(
             5,
             "system credential store unavailable; no plaintext fallback".into(),
         )
     })
+}
+/// Same rule as a definition id, so any imported definition's entry is reachable.
+pub fn check_definition_id(id: &str) -> Result<()> {
+    if !(1..=64).contains(&id.len())
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return Err(Error(
+            2,
+            "definition id must be 1-64 lowercase letters, digits or -".into(),
+        ));
+    }
+    Ok(())
+}
+/// Delete a custom entry by definition id, whatever provider is selected.
+pub fn delete_definition(id: &str) -> Result<()> {
+    check_definition_id(id)?;
+    remove(definition_entry(id)?)
+}
+fn remove(entry: keyring::Entry) -> Result<()> {
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(_) => Err(Error(5, "system credential deletion failed".into())),
+    }
 }
 pub fn system_for_config(cfg: &Config) -> Result<Option<Zeroizing<String>>> {
     match entry_config(cfg)?.get_password() {
@@ -173,10 +202,7 @@ pub fn get_for_config(cfg: &Config, source: &str) -> Result<Zeroizing<String>> {
     ))
 }
 pub fn delete_for_config(cfg: &Config) -> Result<()> {
-    match entry_config(cfg)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(_) => Err(Error(5, "system credential deletion failed".into())),
-    }
+    remove(entry_config(cfg)?)
 }
 pub fn validate(secret: &str) -> Result<()> {
     if secret.is_empty() || secret.len() > 4096 || secret.chars().any(char::is_control) {
@@ -188,9 +214,6 @@ pub fn validate(secret: &str) -> Result<()> {
     }
     Ok(())
 }
-pub fn set(secret: &str) -> Result<()> {
-    set_for(Provider::Jev, secret)
-}
 pub fn set_for(provider: Provider, secret: &str) -> Result<()> {
     validate(secret)?;
     entry(provider)?.set_password(secret).map_err(|_| {
@@ -199,9 +222,6 @@ pub fn set_for(provider: Provider, secret: &str) -> Result<()> {
             "system credential save failed; no plaintext fallback".into(),
         )
     })
-}
-pub fn delete() -> Result<()> {
-    delete_for(Provider::Jev)
 }
 pub fn delete_for(provider: Provider) -> Result<()> {
     match entry(provider)?.delete_credential() {

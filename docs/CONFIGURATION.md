@@ -276,9 +276,11 @@ not just a changed URL. The shipped templates take the response model from the A
 that are neither the requested model nor a listed alias; a custom response transform decides which field it reports.
 
 Import validates offline, selects `dsl`, and copies the definition into private configuration. The source file can then
-be removed. Semantic enablement, consent and privacy settings are preserved. Importing a different definition resets the
-custom credential source to `environment`; re-importing an identical definition keeps it. Import never writes or deletes
-an OS key; delete a stored custom key with `jjump credential delete` before removing or replacing its definition. An
+be removed. Semantic enablement and privacy settings are preserved. Importing a different definition resets consent to
+`ask`, because the endpoint receiving your directory names may have changed, and resets the custom credential source to
+`environment`; re-importing an identical definition keeps both. Import never writes or deletes an OS key. A key stored
+for a definition you have replaced or removed stays in the OS store until you delete it with
+`jjump credential delete --definition ID --apply`. An
 invalid definition file exits with code 2 and names the failing rule. If a saved definition no longer passes the
 current rules, local navigation keeps working and semantic commands name the remedy: import a corrected file or run
 `jjump config remove-provider`. `credential set` stores under `j-jump.dsl.DEFINITION-ID`, account
@@ -340,6 +342,7 @@ replacing that binding inside nested maps. There is no environment, file, shell,
 Request recovery must preserve the exact question and choice IDs, including `none`, before a request can be sent.
 Response normalization must produce the shared `{model, answers, usage?}` format. Core checks still enforce model and
 question identity, choice IDs, refusal handling, finite probabilities, distribution sums, maximum choice and abstention.
+A normalized refusal answer, `{"type":"refusal"}`, is treated like `none` for every provider: no suggestion is offered.
 
 A shape supports `kind` (`object`, `array`, `string`, `uint`, `number`, `boolean`, `null`, or empty for unconstrained JSON),
 `properties`, `required`, `extra`, `items`, `values`, `choices`, `any`, `min`, and `max`. Objects reject unknown fields by

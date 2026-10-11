@@ -330,4 +330,33 @@ fn os_credential_entries_are_independent_in_an_isolated_backend() {
         &**credential::system_for(Provider::Jev).unwrap().unwrap(),
         "synthetic-jev"
     );
+    // The dsl placeholder service is never a real entry; custom keys are per definition.
+    let dsl = Provider::parse("dsl").unwrap();
+    assert_eq!(credential::set_for(dsl, "synthetic-x").unwrap_err().0, 2);
+    assert_eq!(credential::system_for(dsl).unwrap_err().0, 2);
+    assert_eq!(credential::delete_for(dsl).unwrap_err().0, 2);
+    // An orphaned entry is deleted by id alone, leaving every other entry intact.
+    let mut other = custom.clone();
+    other.api_definition.as_mut().unwrap().id = "synthetic-other".into();
+    credential::save_config(
+        &paths,
+        &other,
+        &paths.fingerprint().unwrap(),
+        "synthetic-custom-second",
+    )
+    .unwrap();
+    for bad in ["", "../jev", "Upper", "a.b", &"x".repeat(65)] {
+        assert_eq!(credential::delete_definition(bad).unwrap_err().0, 2);
+    }
+    credential::delete_definition("openrouter-jev").unwrap();
+    credential::delete_definition("openrouter-jev").unwrap();
+    assert!(credential::system_for_config(&custom).unwrap().is_none());
+    assert_eq!(
+        &**credential::system_for_config(&other).unwrap().unwrap(),
+        "synthetic-custom-second"
+    );
+    assert_eq!(
+        &**credential::system_for(Provider::Jev).unwrap().unwrap(),
+        "synthetic-jev"
+    );
 }

@@ -193,9 +193,10 @@ jjump preview backend
 [英文 DSL 文档](CONFIGURATION.md#declarative-apis-0043)。不同协议需要对应的请求、响应与问题还原转换，不能仅改 URL。
 
 导入在离线完成校验后，复制定义到配置并选择 `dsl`；随后可删除源文件。只有一个自定义槽位，再次导入会替换它，
-`jjump config remove-provider` 会清除它。切换至内置 provider 会保留自定义定义。导入保留 semantic、consent、privacy 设置；
-导入不同定义时将自定义凭据来源设为 environment，重新导入相同定义则保持不变。导入不会改写或删除系统 Key；如需删除已保存的
-自定义 Key，请在移除或替换定义前运行 `jjump credential delete`。定义文件无效时退出码为 2，并说明未通过的规则。已保存的定义
+`jjump config remove-provider` 会清除它。切换至内置 provider 会保留自定义定义。导入保留 semantic、privacy 设置；
+导入不同定义时，由于接收目录名的接口可能已改变，consent 会重置为 ask，自定义凭据来源也设为 environment；重新导入相同定义则两者
+都保持不变。导入不会改写或删除系统 Key；已替换或移除的定义所保存的 Key 会留在系统凭证库中，可用
+`jjump credential delete --definition 定义ID --apply` 删除。任何服务返回规范化的拒答（`{"type":"refusal"}`）都按 none 处理，不提供建议。定义文件无效时退出码为 2，并说明未通过的规则。已保存的定义
 若不再符合当前规则，本地跳转仍可使用，语义相关命令会给出处理办法：导入修正后的文件，或运行 `jjump config remove-provider`。系统凭据按 `j-jump.dsl.定义ID` 隔离；相同定义 ID 的多个配置共享该项，环境变量优先。
 
 DSL 支持 JSON 构造、映射、过滤、唯一索引、序列化、条件、断言和受限版本比较；不提供 shell、文件、环境读取或

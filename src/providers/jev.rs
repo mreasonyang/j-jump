@@ -23,29 +23,18 @@ static DESCRIPTION: Descriptor = Descriptor {
     }),
 };
 impl ProviderDriver for Jev {
+    fn wire(&self) -> Option<&'static super::BuiltinWire> {
+        Some(&super::BuiltinWire {
+            id: "jev",
+            request_error: "Jev request schema mismatch",
+            response_error: "Jev response schema mismatch",
+        })
+    }
     fn descriptor(&self) -> &'static Descriptor {
         &DESCRIPTION
     }
     fn model(&self) -> &'static str {
         "jev-1.13.0"
-    }
-    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
-        if !self.accepts_model(model) {
-            return Err(Error(5, "unsupported request model".into()));
-        }
-        super::wire("jev")
-            .prepare(task, model)
-            .map_err(super::wire_error("Jev request schema mismatch"))
-    }
-    fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("jev")
-            .decode(value)
-            .map_err(super::wire_error("Jev response schema mismatch"))
-    }
-    fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("jev")
-            .questions(request)
-            .map_err(super::wire_error("Jev request schema mismatch"))
     }
     fn connection(&self, _: &Config, context: Option<&str>) -> Result<Connection> {
         if context.is_some_and(|s| !s.is_empty()) {

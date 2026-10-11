@@ -38,6 +38,13 @@ static DESCRIPTION: Descriptor = Descriptor {
     }),
 };
 impl ProviderDriver for OpenAI {
+    fn wire(&self) -> Option<&'static super::BuiltinWire> {
+        Some(&super::BuiltinWire {
+            id: "openai",
+            request_error: "OpenAI Decisions schema mismatch",
+            response_error: "OpenAI Decisions schema mismatch",
+        })
+    }
     fn descriptor(&self) -> &'static Descriptor {
         &DESCRIPTION
     }
@@ -53,23 +60,5 @@ impl ProviderDriver for OpenAI {
             context: String::new(),
             transport: Transport::Https,
         })
-    }
-    fn prepare(&self, task: Value, model: &str) -> Result<Vec<u8>> {
-        if !self.accepts_model(model) {
-            return Err(Error(5, "unsupported request model".into()));
-        }
-        super::wire("openai")
-            .prepare(task, model)
-            .map_err(super::wire_error("OpenAI Decisions schema mismatch"))
-    }
-    fn questions(&self, request: &Value) -> Result<Value> {
-        super::wire("openai")
-            .questions(request)
-            .map_err(super::wire_error("OpenAI Decisions schema mismatch"))
-    }
-    fn decode(&self, value: Value) -> Result<Value> {
-        super::wire("openai")
-            .decode(value)
-            .map_err(super::wire_error("OpenAI Decisions schema mismatch"))
     }
 }

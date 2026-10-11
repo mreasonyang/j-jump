@@ -12,7 +12,7 @@ from test_pty import Terminal
 
 ROOT = Path(__file__).resolve().parents[2]
 BIN = first.BIN
-FIXTURE = ROOT / 'target/debug/examples/setup-credentials-fixture'
+FIXTURE = Path(os.environ.get('JJ_TEST_FIXTURE', ROOT / 'target/debug/examples/setup-credentials-fixture')).resolve()
 SECRET = 'synthetic-setup-value-中文'
 
 class SetupKeys(unittest.TestCase):
