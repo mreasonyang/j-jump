@@ -25,6 +25,9 @@ class ProductCLI(unittest.TestCase):
   other=self.home/'Build';other.mkdir();self.record(other)
   self.assertEqual(self.cli('query','b',cwd=blog).stdout,(str(other)+'\n').encode())
   self.cli('query','b','/',cwd=blog,code=3)
+  # A random temporary ancestor may contain 'bl', making Build an ancestor
+  # match. Remove that candidate before testing the excluded current folder.
+  self.cli('history','forget','--apply','--',other)
   self.cli('config','set','exclude',json.dumps([str(blog)]))
   self.cli('query','bl',cwd=blog,code=3)
   self.cli('query','--interactive','bl',cwd=blog,code=3)
