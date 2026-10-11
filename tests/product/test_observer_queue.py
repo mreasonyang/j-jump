@@ -43,7 +43,24 @@ class ObserverQueue(unittest.TestCase):
         self.db = self.root / 'state/data/visits.db'
 
     def tearDown(self):
-        self.tmp.cleanup()
+        # A committed count is visible before the supervisor reaps its last
+        # worker and finishes owner.json/socket retirement. Keep the profile
+        # intact until that owner releases its lock, including on test failure.
+        lock = self.root / 'state/cache/observer-v2/owner.lock'
+        if lock.exists():
+            with lock.open('r+') as owner:
+                deadline = time.monotonic() + 5
+                while True:
+                    try:
+                        fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            self.fail('observer did not retire before profile cleanup')
+                        time.sleep(.005)
+                self.tmp.cleanup()
+        else:
+            self.tmp.cleanup()
 
     def cli(self, *args, cwd=None, code=0):
         result = subprocess.run([str(BIN), *map(str, args)], cwd=cwd or self.home,
