@@ -148,18 +148,21 @@ impl Store {
     /// this reader is not under the supervisor's 250 ms kill deadline. Give a
     /// preceding rollback-journal commit the worker's full 250 ms lifetime,
     /// plus 50 ms to reap it, instead of rejecting the next event at the
-    /// worker's 30 ms write-wait limit. Share one wait budget across both reads.
-    pub fn observation_generation(paths: &Paths) -> Result<String> {
-        let budget = Duration::from_millis(300);
-        let started = std::time::Instant::now();
-        let store = Self::open_with_budget(paths, budget)?;
+    /// worker's 30 ms write-wait limit. Share the submitter's deadline across
+    /// both reads, leaving only the remaining time for queue coordination.
+    pub fn observation_generation(paths: &Paths, deadline: std::time::Instant) -> Result<String> {
+        let store = Self::open_with_budget(
+            paths,
+            deadline.saturating_duration_since(std::time::Instant::now()),
+        )?;
         store
             .db
-            .busy_timeout(budget.saturating_sub(started.elapsed()))
+            .busy_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
             .map_err(db_err)?;
         store.event_generation()
     }
     fn open_with_budget(paths: &Paths, budget: Duration) -> Result<Self> {
+        let deadline = std::time::Instant::now() + budget;
         private_dir(&paths.data)?;
         let path = paths.data.join("visits.db");
         // SQLite never leaves a zero-length database behind, so bytes that are
@@ -185,38 +188,43 @@ impl Store {
             private_sidecar(&paths.data.join(format!("visits.db{suffix}")))?;
         }
         let mut db = Connection::open(path).map_err(db_err)?;
-        db.busy_timeout(budget).map_err(db_err)?;
+        db.busy_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .map_err(db_err)?;
         let version: i64 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(db_err)?;
         if version == 0 {
-            with_immediate_tx(&mut db, budget, |tx| {
-                let current: i64 = tx
-                    .pragma_query_value(None, "user_version", |r| r.get(0))
-                    .map_err(db_err)?;
-                if current == 0 {
-                    let objects: i64 = tx
-                        .query_row(
-                            "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
-                            [],
-                            |r| r.get(0),
-                        )
+            with_immediate_tx(
+                &mut db,
+                deadline.saturating_duration_since(std::time::Instant::now()),
+                |tx| {
+                    let current: i64 = tx
+                        .pragma_query_value(None, "user_version", |r| r.get(0))
                         .map_err(db_err)?;
-                    if objects != 0 {
-                        return Err(Error(
+                    if current == 0 {
+                        let objects: i64 = tx
+                            .query_row(
+                                "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+                                [],
+                                |r| r.get(0),
+                            )
+                            .map_err(db_err)?;
+                        if objects != 0 {
+                            return Err(Error(
                             7,
                             "unversioned visit store is unsupported; use a fresh J_JUMP_HOME; existing data unchanged".into(),
                         ));
-                    }
-                    tx.execute_batch("CREATE TABLE visits(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,key TEXT NOT NULL,count INTEGER NOT NULL,last_seen INTEGER NOT NULL,weight REAL NOT NULL CHECK(typeof(weight) IN ('real','integer') AND weight >= 0 AND weight <= 2147483647)); CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),epoch TEXT NOT NULL,generation INTEGER NOT NULL,revision INTEGER NOT NULL); INSERT INTO meta VALUES(1,lower(hex(randomblob(16))),0,0); PRAGMA user_version=4;").map_err(db_err)?;
-                } else if current != 4 {
-                    return Err(Error(
+                        }
+                        tx.execute_batch("CREATE TABLE visits(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,key TEXT NOT NULL,count INTEGER NOT NULL,last_seen INTEGER NOT NULL,weight REAL NOT NULL CHECK(typeof(weight) IN ('real','integer') AND weight >= 0 AND weight <= 2147483647)); CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),epoch TEXT NOT NULL,generation INTEGER NOT NULL,revision INTEGER NOT NULL); INSERT INTO meta VALUES(1,lower(hex(randomblob(16))),0,0); PRAGMA user_version=4;").map_err(db_err)?;
+                    } else if current != 4 {
+                        return Err(Error(
                         7,
                         "unsupported visit store schema; use a fresh J_JUMP_HOME; existing data unchanged".into(),
                     ));
-                }
-                Ok(())
-            })?;
+                    }
+                    Ok(())
+                },
+            )?;
         } else if version != 4 {
             return Err(Error(
                 7,

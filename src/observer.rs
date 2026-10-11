@@ -23,7 +23,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SUBMIT_BUDGET: Duration = Duration::from_millis(20);
+// Cover one preceding worker's lifetime plus reaping, sharing this deadline
+// between the generation snapshot and queue coordination/backpressure.
+const SUBMIT_BUDGET: Duration = Duration::from_millis(300);
 const WORKER_BUDGET: Duration = Duration::from_millis(250);
 const MAX_PENDING: usize = 128;
 const MAX_EVENT: usize = 32768;
@@ -171,6 +173,7 @@ fn command(paths: &Paths, action: &str) -> Result<Command> {
 }
 
 pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
+    let deadline = Instant::now() + SUBMIT_BUDGET;
     let paths = Paths::discover(config.map(Path::to_path_buf))?;
     let cfg = paths.load()?;
     if !cfg.tracking {
@@ -188,7 +191,7 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
             "logical PWD does not identify current directory".into(),
         ));
     }
-    let generation = Store::observation_generation(&paths)?;
+    let generation = Store::observation_generation(&paths, deadline)?;
     if fingerprint != paths.fingerprint()? {
         return Err(unavailable());
     }
@@ -201,7 +204,6 @@ pub fn observe(path: &Path, config: Option<&Path>) -> Result<()> {
     if bytes.len() > MAX_EVENT {
         return Err(unavailable());
     }
-    let deadline = Instant::now() + SUBMIT_BUDGET;
     let inbox = Inbox::new(&paths)?;
     // Submission and empty-queue retirement share this lock. A successful send
     // cannot land in the gap between an owner's final receive and its exit.

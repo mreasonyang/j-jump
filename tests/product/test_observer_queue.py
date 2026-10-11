@@ -5,6 +5,7 @@ that owner, and remain bound to the history generation at submission.
 """
 import contextlib
 import concurrent.futures
+import fcntl
 import os
 import pathlib
 import shlex
@@ -89,6 +90,30 @@ class ObserverQueue(unittest.TestCase):
         self.assertEqual(result.stdout, b'')
         self.assertIn(b'visit store busy', result.stderr)
         self.assertNotIn(str(self.beta), self.rows())
+
+    def test_submission_waits_for_an_owner_critical_section(self):
+        inbox = self.root / 'state/cache/observer'
+        inbox.parent.mkdir(mode=0o700, exist_ok=True)
+        inbox.mkdir(mode=0o700, exist_ok=True)
+        lock = inbox / 'submit.lock'
+        with lock.open('w') as file:
+            lock.chmod(0o600)
+            fcntl.flock(file, fcntl.LOCK_EX)
+            child = subprocess.Popen([str(BIN), 'observe', '--', str(self.beta)],
+                                     cwd=self.beta, env=dict(self.env, PWD=str(self.beta)),
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                time.sleep(.2)
+                self.assertIsNone(child.poll(), 'submission gave up during owner coordination')
+            finally:
+                fcntl.flock(file, fcntl.LOCK_UN)
+                out, err = child.communicate(timeout=2)
+        self.assertEqual(child.returncode, 0, err)
+        self.assertGreater(int(out), 1)
+        deadline = time.monotonic() + 2
+        while self.rows().get(str(self.beta)) != 1 and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(self.rows().get(str(self.beta)), 1)
 
     @contextlib.contextmanager
     def suspended_owner(self):
@@ -215,7 +240,7 @@ class ObserverQueue(unittest.TestCase):
                 result = subprocess.run([str(BIN), 'observe', '--', str(self.beta)],
                                         cwd=self.beta, env=dict(self.env, PWD=str(self.beta)),
                                         capture_output=True, timeout=2)
-                self.assertLess(time.monotonic() - started, .15)
+                self.assertLess(time.monotonic() - started, .5)
                 if result.returncode:
                     self.assertEqual(result.returncode, 7, result.stderr)
                     self.assertEqual(result.stdout, b'')
