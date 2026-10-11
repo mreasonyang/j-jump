@@ -74,6 +74,25 @@ class ObserverQueue(unittest.TestCase):
                         continue
                 self.assertIsNotNone(pid, 'no live observer to suspend')
                 db.rollback()
+                # SIGSTOP pauses the supervisor, not an already spawned seed
+                # worker. Wait for that worker to release its policy lock;
+                # otherwise the later config edit legitimately reports busy.
+                # A stopped owner cannot start another worker after this check.
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    processes = subprocess.run(['ps', '-axo', 'pid=,ppid=,stat='],
+                                               capture_output=True, text=True,
+                                               check=True, timeout=2).stdout
+                    rows = [line.split() for line in processes.splitlines()]
+                    stopped = any(int(row[0]) == pid and row[2].startswith('T')
+                                  for row in rows)
+                    running_children = any(int(row[1]) == pid and not row[2].startswith('Z')
+                                           for row in rows)
+                    if stopped and not running_children:
+                        break
+                    time.sleep(.005)
+                else:
+                    self.fail('seed worker did not finish while its owner was stopped')
                 yield pid
             finally:
                 db.rollback()
@@ -144,6 +163,7 @@ class ObserverQueue(unittest.TestCase):
             with self.subTest(policy=field):
                 self.cli('config', 'set', 'tracking', 'on')
                 self.cli('config', 'set', 'exclude', '[]')
+                self.cli('history', 'clear', '--apply')
                 with self.suspended_owner() as pid:
                     self.assertEqual(int(self.cli('observe', '--', self.beta, cwd=self.beta).stdout), pid)
                     if value is None:
