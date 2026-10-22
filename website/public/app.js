@@ -7,11 +7,11 @@
     navInstall: "安装",
     release: "v0.0.47 · 开源 Beta",
     heroLine1: "少记路径。",
-    heroLine2: "多些顺手。",
+    heroLine2: "专注当下。",
     heroDescription:
-      "跳到你访问过的目录。几个字母，一个熟悉的概念，甚至换一种语言，都从终端出发。",
-    getStarted: "安装 J-Jump",
-    seeHow: "看看怎么用",
+      "跳到你去过的目录。几个字母、模糊词义，甚至换一种语言，全在你的 Shell 命令行中完成。",
+    getStarted: "快速安装",
+    seeHow: "查看演示",
     localMode: "本地匹配 · 无需联网",
     replay: "重置",
     byName: "按名称",
@@ -20,7 +20,7 @@
     demoCaption: "点选一个场景。这是交互示意，不会执行命令。",
     principle1: "本地优先。",
     principle2: "语义按需开启。",
-    principle3: "始终由你选择。",
+    principle3: "语义建议，由你选择。",
     howEyebrow: "找到熟悉的方向",
     howTitle1: "你记得要做的事。",
     howTitle2: "它记得该走的路。",
@@ -32,7 +32,7 @@
     meaningTitle: "忘了名字，就说含义。",
     meaningDescription:
       "可选的语义模型会从你访问过的目录里建议一个匹配项。模型提供建议，你来决定去哪里。",
-    languageTitle: "用你习惯的语言来想。",
+    languageTitle: "用你习惯的语言直接搜。",
     languageDescription:
       "思考的语言，不必与目录名一致。借助你选择的模型，用含义寻找目标，也可以跨越语言。",
     controlEyebrow: "一点帮助，决定权在你",
@@ -47,23 +47,23 @@
     providerTitle: "模型在哪里跑，你来选。",
     providerDescription:
       "可以选择云端 Jev、Cloudflare Clef-Flash、OpenAI Decisions，也可以用 Ollama 在本机运行 Tev1。",
-    privacyTitle: "知道哪些信息会离开本机。",
+    privacyTitle: "清楚掌控，哪些数据离开本机。",
     privacyDescription:
-      "语义功能默认关闭。严格隐私模式仅发送查询和候选目录名。你可以预览请求、排除目录，并在跳转前确认选择。",
+      "语义功能默认关闭。严格模式仅发送查询词与候选目录名，不会向模型发送文件内容、代码或环境变量。你可随时预览请求并排除敏感目录。",
     commandsEyebrow: "简单命令，日常使用",
     commandsTitle1: "融入你的习惯。",
-    commandsTitle2: "让操作更顺手。",
+    commandsTitle2: "从不打扰。",
     commandsDescription:
       "几个小命令，让目录间的移动更自然。原来的 cd 依然照常工作。",
     fullDocs: "阅读完整指南",
     cmd1: "沿路径按顺序匹配多个词。",
-    cmd2: "只在当前目录中查找。",
+    cmd2: "只在当前目录之下查找已访问的目录。",
     cmd3: "返回上一个目录。",
     cmd4: "从访问记录中选择目录。",
-    cmd5: "补全匹配项，回车后跳转。",
+    cmd5: "补全路径到命令行，按回车才跳转。",
     cmd6: "离线检查配置，给出修复建议。",
     installEyebrow: "随时可以出发",
-    installTitle: "下一站，熟悉的目录。",
+    installTitle: "装好即用，重回你的节奏。",
     installDescription: "安装一次，打开新终端。离下一个想法，再近一步。",
     installScript: "安装脚本",
     allReleases: "所有版本",
@@ -73,7 +73,7 @@
       "验证 SHA-256 后安装到 ~/.local/bin，无需 sudo；同时接入 shell。",
     step1: "完成安装后，打开一个新终端。",
     step2: "照常使用 cd，积累访问记录。",
-    step3: "运行 j 或 ji，在向导中选择本地模式或语义服务。",
+    step3: "运行 j 或 ji；首次向导选择 off 即可保持纯本地，也可按需挑选语义服务。",
     installPlatforms:
       "macOS 15+ · Linux · Apple silicon / Intel / ARM64 / x86-64 · Bash / Zsh / Fish",
     faqEyebrow: "你可能想知道",
@@ -263,7 +263,7 @@
       );
     document.title =
       lang === "zh"
-        ? "J-Jump — 少记路径，多些顺手。"
+        ? "J-Jump — 少记路径，专注当下。"
         : "J-Jump — Less path. More flow.";
     document.querySelector('meta[name="description"]').content =
       lang === "zh"

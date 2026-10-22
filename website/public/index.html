@@ -20,7 +20,7 @@
     <meta name="twitter:card" content="summary" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
-    <script src="/app.js" defer></script>
+    <script src="/app.js?v=20261022-copy" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main" data-i18n="skip">Skip to content</a>
@@ -67,14 +67,14 @@
             >
           </h1>
           <p class="hero-description" data-i18n="heroDescription">
-            Jump to the folders you visit. A few letters, a familiar idea, even
+            Jump to the folders you visit. A few letters, a familiar meaning, or
             another language. Right from your shell.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#install"
               ><span data-i18n="getStarted">Get J-Jump</span
               ><span aria-hidden="true">↗</span></a
-            ><a class="text-link" href="#how-it-works"
+            ><a class="text-link" href="#demo"
               ><span data-i18n="seeHow">See how it works</span
               ><span aria-hidden="true">↓</span></a
             >
@@ -84,7 +84,7 @@
             ><span>Bash / Zsh / Fish</span>
           </p>
         </div>
-        <div class="demo-area">
+        <div class="demo-area" id="demo">
           <div
             class="terminal"
             role="region"
@@ -157,7 +157,7 @@
         </div>
         <div>
           <span class="principle-symbol" aria-hidden="true">↵</span
-          ><span data-i18n="principle3">Always your choice.</span>
+          ><span data-i18n="principle3">Semantic suggestions. Your choice.</span>
         </div>
       </div>
       <section
@@ -283,8 +283,9 @@
                 <h3 data-i18n="privacyTitle">Know what leaves your machine.</h3>
                 <p data-i18n="privacyDescription">
                   Semantic help is off by default. Strict mode sends only your
-                  query and candidate folder names. Preview the request, exclude
-                  folders, and confirm before you jump.
+                  query and candidate folder names—never file contents, source
+                  code, or environment variables. Preview requests and exclude
+                  folders anytime.
                 </p>
                 <code>jjump preview "my cv"</code>
               </div>
@@ -330,7 +331,7 @@
           </div>
           <div>
             <dt><code>j api /</code></dt>
-            <dd data-i18n="cmd2">Search inside the current folder.</dd>
+            <dd data-i18n="cmd2">Search visited folders within the current directory tree.</dd>
           </div>
           <div>
             <dt><code>j -</code></dt>
@@ -344,7 +345,7 @@
             <dt>
               <code>j pay <kbd>Tab</kbd></code>
             </dt>
-            <dd data-i18n="cmd5">Complete a match. Press Enter to go.</dd>
+            <dd data-i18n="cmd5">Put a match on the command line; press Enter to go.</dd>
           </div>
           <div>
             <dt><code>jjump doctor</code></dt>
@@ -413,7 +414,8 @@
             <div>
               <span>3</span>
               <p data-i18n="step3">
-                Run j or ji. Choose local-only or a provider in setup.
+                Run j or ji. Choose off in the setup wizard for local-only, or
+                pick a semantic provider.
               </p>
             </div>
           </div>
