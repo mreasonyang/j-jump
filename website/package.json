@@ -1,0 +1,16 @@
+{
+  "name": "j-jump-official-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The static official website for J-Jump",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "preview": "node scripts/preview.mjs"
+  }
+}

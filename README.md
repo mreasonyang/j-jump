@@ -11,6 +11,8 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
+[Official website](https://j-jump.kyun.si/)
+
 </div>
 
 <p align="center"><img src=".github/assets/demo.gif" alt="J-Jump demo: j pay jumps by name; ji my cv finds resumes with Jev; ji 税务 finds taxes" width="760"></p>

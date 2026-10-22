@@ -2,6 +2,8 @@
 
 # J-Jump
 
+[官方网站](https://j-jump.kyun.si/)
+
 **在终端里按名称、按含义、用任何语言，一步跳到想去的目录。**
 
 [![最新版本](https://img.shields.io/github/v/release/mreasonyang/j-jump?sort=semver)](https://github.com/mreasonyang/j-jump/releases/latest)

@@ -61,7 +61,7 @@ PUBLIC_MARKDOWN = {
     "AGENTS.md", "README.md", "README.zh-CN.md", "CONTRIBUTING.md", "LICENSE.md", "docs/README.md",
     "docs/CONFIGURATION.md",
     "docs/CONFIGURATION-AND-HELP.md", "docs/RELEASE.md", "packaging/README.md",
-    "research/semantic-pilot/README.md", "research/half-life-0031/README.md",
+    "research/semantic-pilot/README.md", "research/half-life-0031/README.md", "website/README.md",
 }
 PROCESS_PREFIXES = (
     "specs/", ".agents/", "docs/evidence/", "docs/history/",

@@ -75,3 +75,7 @@ __pycache__/
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Generated official website bundle
+/website/dist/
+/website/j-jump-site.zip
