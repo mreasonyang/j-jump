@@ -30,35 +30,59 @@ formats, and WOFF2 fonts. The root-level Cloudflare `_headers` and `_redirects` 
 also supported and checked as text. The preview server serves static files; Cloudflare
 applies the hosting configuration during deployment.
 
-## Package for Cloudflare Pages
+## Deploy with Cloudflare Pages and GitHub
 
-```sh
-cd website
-npm run package
-```
+Cloudflare Pages builds the website directly from the
+[`mreasonyang/j-jump` GitHub repository](https://github.com/mreasonyang/j-jump).
+Use the native Cloudflare GitHub App connection and the following project settings:
 
-This validates and rebuilds the site, then writes `j-jump-site.zip` and prints its SHA-256.
-The archive is deterministic and places `index.html` at its root. It contains only files
-copied from `public`; repository source, records, build tools, and credentials are excluded.
-The `dist` directory and ZIP are generated outputs and should not be committed.
+| Setting | Value |
+| --- | --- |
+| Pages project | `j-jump-site` |
+| Production branch | `main` |
+| Framework preset | None |
+| Root directory | `website` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Environment variable | `NODE_VERSION=22` |
+
+The build validates the public assets before copying them to `dist`. It requires no npm
+dependencies or Cloudflare API token. Only the generated website assets are published;
+repository source, private records, build tools, and credentials are excluded.
 
 In the Cloudflare dashboard:
 
-1. Open **Workers & Pages**, choose **Create application**, then the **Pages** direct-upload flow.
-2. Create the `j-jump` Pages project and upload `j-jump-site.zip` (or the contents of `dist`).
-3. Deploy the site and verify the project’s `pages.dev` URL.
-4. In the Pages project’s **Custom domains**, add `j-jump.kyun.si` and complete Cloudflare’s
-   DNS and certificate setup for the `kyun.si` zone.
-5. Verify the HTTPS homepage, CSS, JavaScript, favicon, missing-page behavior, and both languages.
+1. Open **Workers & Pages**, choose **Create application**, then the **Pages** Git integration flow.
+2. Connect GitHub and authorize the Cloudflare GitHub App for `mreasonyang/j-jump`.
+   Preserve any repositories already authorized for other sites.
+3. Create `j-jump-site` with the settings above. Keep automatic production deployments
+   enabled for `main`.
+4. Wait for the Git build and deployment to succeed, check its source commit, and verify
+   `https://j-jump-site.pages.dev/` before moving the custom domain.
+5. Move `j-jump.kyun.si` from the existing direct-upload project `j-jump` to `j-jump-site`
+   through **Custom domains** and complete the DNS and certificate setup for `kyun.si`.
+6. Verify the HTTPS homepage, CSS, JavaScript, favicon, missing-page behavior, and both
+   languages. Retain the old `j-jump` project and its deployment as a rollback baseline.
 
-For subsequent releases, create a new production deployment in the same Pages project
-and upload the newly generated ZIP. Keep its hash with the deployment evidence. A rollback
-uses the preceding deployment in the Pages dashboard. Website deployment does not publish
-a CLI release or trigger the repository’s guarded release workflow.
+After setup, an ordinary push to `main` triggers Cloudflare's build and production deployment.
+Check the deployment status and source commit in Pages; no file upload is needed. Use a
+previous successful deployment in the Pages dashboard for a routine rollback. During the
+migration, the retained `j-jump` project also permits restoring the previous domain binding.
+Website deployment does not publish a CLI release or trigger the repository's guarded
+release workflow.
 
-Cloudflare Direct Upload projects cannot later switch to Git integration; automatic Git
-deployments require a separate project. See the official [Direct Upload documentation](https://developers.cloudflare.com/pages/get-started/direct-upload/)
+Cloudflare Direct Upload projects cannot later switch to Git integration, which is why
+the Git-connected site uses a separate project. See the official
+[Git integration documentation](https://developers.cloudflare.com/pages/get-started/git-integration/),
+[Direct Upload documentation](https://developers.cloudflare.com/pages/get-started/direct-upload/)
 and [custom domain setup](https://developers.cloudflare.com/pages/configuration/custom-domains/).
+
+## Optional offline package
+
+`npm run package` validates and rebuilds the site, writes a deterministic `j-jump-site.zip`,
+and prints its SHA-256. The archive places `index.html` at its root and contains only files
+copied from `public`. This is an optional offline artifact; production deployment uses the
+Git integration above. The generated `dist` directory and ZIP should not be committed.
 
 ## Content changes
 
