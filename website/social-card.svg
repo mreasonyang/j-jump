@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="Arial, Helvetica, sans-serif">
+  <rect width="1200" height="630" fill="#f6f5f0"/>
+  <rect x="52" y="48" width="64" height="64" rx="12" fill="#d64016"/>
+  <g transform="translate(52 48)" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M25 20v24q0 10-11 10" stroke-width="6"/><circle cx="25" cy="10" r="3" fill="#fff" stroke="none"/><path d="m36 34 14-14M38 20h12v12" stroke-width="5"/>
+  </g>
+  <text x="135" y="91" font-size="33" font-weight="700" fill="#22241f">J-Jump.</text>
+  <text x="1146" y="86" text-anchor="end" font-size="22" fill="#686d60">j-jump.kyun.si</text>
+  <path d="M52 144H1148" stroke="#dddfd5" stroke-width="2"/>
+  <text x="52" y="265" font-size="80" font-weight="700" fill="#22241f">Less path.</text>
+  <text x="52" y="355" font-size="80" font-weight="700" fill="#d64016">More flow.</text>
+  <text x="54" y="412" font-size="25" fill="#686d60">Jump to the folders you visit.</text>
+  <rect x="652" y="196" width="496" height="296" rx="18" fill="#22241f"/>
+  <path d="M652 250H1148" stroke="#41443b" stroke-width="1"/>
+  <circle cx="679" cy="223" r="5" fill="#e77b62"/><circle cx="697" cy="223" r="5" fill="#e6be61"/><circle cx="715" cy="223" r="5" fill="#8fae79"/>
+  <text x="1122" y="230" text-anchor="end" font-size="17" fill="#b5baad">zsh</text>
+  <text x="684" y="294" font-size="22" fill="#afb3a8">~/work</text>
+  <text x="684" y="342" font-size="30" fill="#f49471">❯</text>
+  <text x="718" y="342" font-size="30" font-family="Menlo, monospace" fill="#f6f5f0">j pay</text>
+  <rect x="685" y="368" width="430" height="61" rx="8" fill="#333b2d"/>
+  <text x="702" y="407" font-size="26" font-family="Menlo, monospace" fill="#c5dfa7">✓ ~/work/payments</text>
+  <text x="685" y="464" font-size="19" fill="#b5baad">You’re here. Back to your work.</text>
+  <path d="M52 536H1148" stroke="#dddfd5" stroke-width="2"/>
+  <text x="54" y="583" font-size="21" fill="#686d60">macOS + Linux</text>
+  <text x="1148" y="583" text-anchor="end" font-size="21" fill="#686d60">Bash / Zsh / Fish</text>
+</svg>

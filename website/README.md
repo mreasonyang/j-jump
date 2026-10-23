@@ -20,8 +20,9 @@ for access from other devices and serves only the generated `dist` folder. Stop 
 Ctrl-C. Rebuild after changing files in `public`.
 
 `check` validates JavaScript syntax, local asset references, internal anchors, canonical
-metadata, and sitemap configuration. It rejects unsupported file types, symlinks, hidden
-entries, private folders, and machine-specific paths in the published assets. It does not
+metadata, social-card tags and image dimensions, and sitemap configuration. It rejects
+unsupported file types, symlinks, hidden entries, private folders, and machine-specific
+paths in the published assets. It does not
 replace browser checks of English and Chinese content, copy buttons, terminal demo,
 responsive layout, keyboard navigation, or external links.
 
@@ -90,3 +91,18 @@ Edit `public/index.html`, `public/styles.css`, and `public/app.js`. Keep install
 commands and product claims aligned with the repository documentation. Update both language
 dictionaries together. Retain the canonical origin `https://j-jump.kyun.si` in HTML metadata,
 `robots.txt`, and `sitemap.xml`.
+
+## Social sharing
+
+The root page includes static Open Graph and Twitter/X `summary_large_image` metadata.
+Both languages use the same root URL, so crawlers receive the default English card
+without needing JavaScript. `public/social-card.png` is the 1200×630 public share image;
+its editable artwork is `social-card.svg` outside the published folder. Render it with
+a standards-compliant SVG rasterizer (for example Sharp/librsvg) when updating the artwork.
+The normal build uses the committed PNG and needs no image-rendering dependency.
+
+`npm run check` requires unique, matching title/description/image/alt tags, an absolute
+HTTPS image URL, the matching PNG type and dimensions, and an image below 5 MB. After
+deployment, check the root and image with a `Twitterbot/1.0` user agent and compare their
+bodies with the build. X may retain an earlier card until its crawler refreshes the URL;
+HTTP and metadata checks do not establish what an existing X post currently displays.
